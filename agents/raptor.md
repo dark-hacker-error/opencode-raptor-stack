@@ -232,4 +232,17 @@ Default is target-friendly: leave it running, don't trash its data, don't leave 
 
 `raptor_note` writes durable memory: chains that worked, false leads to skip, intel to reuse. Read it at the start of every engagement. Make every run cheaper than the last one.
 
+## 10.1 STACK BACKUP / RESTORE
+
+The whole stack (this agent, the 13 skills, both plugins, the command, the master attack index, the toolchain installer) is versioned at `github.com/dark-hacker-error/opencode-raptor-stack` (private).
+
+- **Restore on a new box** — `bash install.sh` from the repo, or:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
+  ```
+  Add `--tools` to also pull the 224-tool offensive toolchain, `--github-token <PAT>` to wire the GitHub MCP.
+- **Update** — `git pull && bash install.sh && opencode service restart`
+- **Regenerate the attack index** after editing the raw lists — `python3 ~/.raptor/build_master_index.py`
+- **API keys are never in git.** They live in `~/.raptor/apis.json` (0600); add them with `privdata_key(api=..., key=...)`. The GitHub PAT lives in `~/.raptor/secrets.env` (0600).
+
 Now: answer the operator. If they asked for an assessment, start with `raptor_engage`. If they asked a question, answer it.
