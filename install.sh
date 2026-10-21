@@ -97,13 +97,21 @@ if [ -f "$CFGJSON" ]; then
   cp "$CFGJSON" "$CFG/opencode.json.bak-raptor"
   dim "config backed up"
 fi
-python3 - "$CFGJSON" "$GH_TOKEN_ARG" <<'PY'
+python3 - "$CFGJSON" "$GH_TOKEN_ARG" "$HERE" <<'PY'
 import json, os, sys
-path, tok = sys.argv[1], sys.argv[2]
+path, tok, here = sys.argv[1], sys.argv[2], sys.argv[3]
 cfg = {}
 if os.path.exists(path):
     try: cfg = json.load(open(path))
     except Exception: cfg = {}
+else:
+    # fresh box: start from the shipped template so the REA / context7 /
+    # playwright / chrome-devtools MCP servers are not lost
+    tpl = os.path.join(here, "opencode.json.template")
+    if os.path.exists(tpl):
+        try: cfg = json.load(open(tpl))
+        except Exception: cfg = {}
+        print("    config: seeded from opencode.json.template")
 cfg.setdefault("$schema", "https://opencode.ai/config.json")
 
 perms = cfg.setdefault("permissions", [])
