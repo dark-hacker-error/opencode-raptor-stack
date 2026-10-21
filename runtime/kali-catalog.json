@@ -1,0 +1,385 @@
+{
+ "classes": [
+  {
+   "pattern": "^(nmap|masscan|naabu|rustscan|zmap|unicornscan|hping3|arp-scan|netdiscover|arpwatch|arp$|tcptraceroute|traceroute|mtr|ettercap|dsniff|tcpdump|netstat|ss$|ifconfig|ip$|arp$|route$|networksetup)",
+   "flags": "",
+   "cat": "network-recon",
+   "desc": "host/port/service discovery"
+  },
+  {
+   "pattern": "^(amass|subfinder|assetfinder|findomain|shuffledns|puredns|alterx|dnstwist|subzy|github-subdomains|sone$|ctfr|h8mail)",
+   "flags": "",
+   "cat": "subdomain-enum",
+   "desc": "subdomain enumeration"
+  },
+  {
+   "pattern": "^(dnsx|dig|host|nslookup|delv|drill|named-checkzone|ldns|dog|dns2tcp|dnstap|dnscat|iodine|sslip)$",
+   "flags": "",
+   "cat": "dns",
+   "desc": "DNS enumeration / tunnel / poisoning"
+  },
+  {
+   "pattern": "^(tlsx|sslscan|sslyze|testssl\\.sh|openssl|tlsfuzzer|certspotter|crt|crtx|enum4ics)$",
+   "flags": "",
+   "cat": "tls-certs",
+   "desc": "TLS/certificate analysis"
+  },
+  {
+   "pattern": "^(waybackurls|gau|urlfinder|katana|gospider|hakrawler|waymore|katana|unfurl|urldump|urlparser|curl|xurl2curl)$",
+   "flags": "",
+   "cat": "url-gathering",
+   "desc": "URL/endpoint gathering"
+  },
+  {
+   "pattern": "^(theHarvester|h8mail|mailoslayer|mailfinder|smtp-user-enum|swaks|smtpmap|smtp-user-enum|enum4ics)$",
+   "flags": "",
+   "cat": "osint-email",
+   "desc": "email harvesting / SMTP enumeration"
+  },
+  {
+   "pattern": "^(whois|amass|hostmap|shodan|netlas|censys|zoomeye|fofa|quake|hunter|leakix|netcraft|recon-ng|theHarvester)$",
+   "flags": "",
+   "cat": "osint-search",
+   "desc": "passive OSINT / search engines"
+  },
+  {
+   "pattern": "^(exiftool|exiv2|matroska|identify|mediainfo|ffprobe|file-ripper|pdfinfo|qpdf|mutool|pdftotext|strings|binutils)$",
+   "flags": "",
+   "cat": "metadata",
+   "desc": "file/document metadata extraction"
+  },
+  {
+   "pattern": "^(sherlock|hypedataset|maigret|whatsmyname|phoneinfoga|sherlock$|blackbird|spiderfoot)$",
+   "flags": "",
+   "cat": "osint-identity",
+   "desc": "username/identity OSINT"
+  },
+  {
+   "pattern": "^(ghunt|mosint|holehe|social-analyzer|gitrob|sherlock)$",
+   "flags": "",
+   "cat": "osint-social",
+   "desc": "social media / account OSINT"
+  },
+  {
+   "pattern": "^(waymore|osint-gathering|degoogle|godns|leaked)$",
+   "flags": "",
+   "cat": "osint-web",
+   "desc": "web OSINT collection"
+  },
+  {
+   "pattern": "^(nikto|wapiti|zaproxy|owasp|zap|burp|burpsuite|nuclei|nikto|whatweb|wafw00f|arachni|w3af|skipfish|vega|sn1per|feroxbuster|gobuster|ffuf|dirsearch|dirb|dirbuster|wfuzz|nikto|medusa)$",
+   "flags": "",
+   "cat": "web-scan",
+   "desc": "web vulnerability scanning"
+  },
+  {
+   "pattern": "^(sqlmap|sqlninja|ghauri|sqlize|jsql|drone|havij|absinthe|safe3si)$",
+   "flags": "",
+   "cat": "sqli",
+   "desc": "SQL injection"
+  },
+  {
+   "pattern": "^(nosqlmap|jsql)$",
+   "flags": "",
+   "cat": "nosqli",
+   "desc": "NoSQL injection"
+  },
+  {
+   "pattern": "^(dalfox|xsser|html5secbypass|xsshell|csurf|pblind|csrf)$",
+   "flags": "",
+   "cat": "xss",
+   "desc": "XSS"
+  },
+  {
+   "pattern": "^(tplmap|sstimap|hyde)$",
+   "flags": "",
+   "cat": "ssti",
+   "desc": "server-side template injection"
+  },
+  {
+   "pattern": "^(xxe|xxenum|xxeinjector|payloadxxe|xmlbomb)$",
+   "flags": "",
+   "cat": "xxe",
+   "desc": "XML external entity"
+  },
+  {
+   "pattern": "^(ssrfmap|gopherus|cloud_enum|interactsh-client)$",
+   "flags": "",
+   "cat": "ssrf",
+   "desc": "SSRF"
+  },
+  {
+   "pattern": "^(commix|shellshock|payload|polyglot)$",
+   "flags": "",
+   "cat": "cmdi",
+   "desc": "command injection"
+  },
+  {
+   "pattern": "^(lfimap|dotdotdot|path-traversal|travy|ffuf)$",
+   "flags": "",
+   "cat": "lfi",
+   "desc": "path traversal / LFI"
+  },
+  {
+   "pattern": "^(ysoserial|marshalsec|fenix|jexboss|pysoserial|ysoserial.net|rogue-jndi)$",
+   "flags": "",
+   "cat": "deser",
+   "desc": "deserialization RCE"
+  },
+  {
+   "pattern": "^(jwt_tool|jwt-cracker|jwt_tool|cjwt|hapic|token$|jwtmap)$",
+   "flags": "",
+   "cat": "jwt",
+   "desc": "JWT analysis"
+  },
+  {
+   "pattern": "^(arjun|param-minerizer|x8|paramspider|ffuf|corb|getparams)$",
+   "flags": "",
+   "cat": "param-fuzz",
+   "desc": "parameter fuzzing"
+  },
+  {
+   "pattern": "^(graphql-cop|inql|gqlscan|graphql-toolkit|clairvoyance)$",
+   "flags": "",
+   "cat": "graphql",
+   "desc": "GraphQL analysis"
+  },
+  {
+   "pattern": "^(corscanner|corsy|oralyzer|open-redirect|redirect-check)$",
+   "flags": "",
+   "cat": "web-misconfig",
+   "desc": "CORS / open redirect"
+  },
+  {
+   "pattern": "^(jwtgen|hapic|grinder|hashcat|john|cewl|sylva3x|spray|hash-identifier|ophcrack)$",
+   "flags": "",
+   "cat": "hash-crack",
+   "desc": "hash cracking / password corpora"
+  },
+  {
+   "pattern": "^(wpscan|joomscan|droopescan|cmsmap|cmscan|cms$|exploitdb|searchsploit|cms-explorer)$",
+   "flags": "",
+   "cat": "cms",
+   "desc": "CMS fingerprinting / exploitation"
+  },
+  {
+   "pattern": "^(caching|smuggler|http-request-smuggler|desync|cl.Request$|smuggler.py)$",
+   "flags": "",
+   "cat": "http-smuggling",
+   "desc": "request smuggling"
+  },
+  {
+   "pattern": "^(waf-detector|wafw00f|bypass|evilwaf|fake|waf-bypass)$",
+   "flags": "",
+   "cat": "waf",
+   "desc": "WAF detection / bypass"
+  },
+  {
+   "pattern": "^(hydra|medusa|patator|brute|crackmapexec|netexec|ncrack|crowbar|feroxbuster)$",
+   "flags": "",
+   "cat": "bruteforce",
+   "desc": "credential brute force"
+  },
+  {
+   "pattern": "^(hashcat|john|cowpatty|oclHashcat|hash-identifier|ophcrack|hashcat)$",
+   "flags": "",
+   "cat": "hash-crack",
+   "desc": "hash cracking"
+  },
+  {
+   "pattern": "^(secretsdump|crackmapexec|netexec|responder|ntlmrelayx|relayx|impacket-smbserver|smbmap|smbclient|rpcclient|wmiexec.py|winreg|reg.py|dpbackup|secretsdump)$",
+   "flags": "",
+   "cat": "ad-lateral",
+   "desc": "AD / SMB / relay"
+  },
+  {
+   "pattern": "^(ldapsearch|ldapwhoami|ldapdomaindump|ldapsearch|crackmapexec)$",
+   "flags": "",
+   "cat": "ad-lateral",
+   "desc": "LDAP / AD enumeration"
+  },
+  {
+   "pattern": "^(bloodhound|sharphound|bloodhound-python|netexec)$",
+   "flags": "",
+   "cat": "ad-graph",
+   "desc": "AD attack-path mapping"
+  },
+  {
+   "pattern": "^(certipy|pywhisker|getticket|PKCS12|Posh-AD-SelfSignedCert)$",
+   "flags": "",
+   "cat": "ad-cert",
+   "desc": "AD CS / certificate abuse"
+  },
+  {
+   "pattern": "^(coercer|ntlmrelayx|responder|impacket)$",
+   "flags": "",
+   "cat": "ad-relay",
+   "desc": "coercion / relay"
+  },
+  {
+   "pattern": "^(linpeas|pspy|winpeas|SharpUp|PowerUp|lin$|linux-smart-enumeration|enum4ics|sudo-killer|dirtypipe|dirtycow|kernel-exploits)$",
+   "flags": "",
+   "cat": "privesc",
+   "desc": "privilege escalation"
+  },
+  {
+   "pattern": "^(sudo|SUID|suid|gtfobins|lse|les|checkcap|lpe|escalate)$",
+   "flags": "",
+   "cat": "privesc",
+   "desc": "privilege escalation"
+  },
+  {
+   "pattern": "^(docker|kubectl|crictl|ctr|nerdctl|kubelet|kubectx|trivy|dockerd|containerd)$",
+   "flags": "",
+   "cat": "container",
+   "desc": "container / k8s"
+  },
+  {
+   "pattern": "^(capsh|getcap|setcap|chroot|nsenter|unshare|firejail|bubblewrap)$",
+   "flags": "",
+   "cat": "sandbox-escape",
+   "desc": "namespace / capability abuse"
+  },
+  {
+   "pattern": "^(metasploit|msfconsole|msfvenom|msfsearch|msfrpcd|cobaltstrike|sliver|havoc|mythic|empire|brute$|gdb-script|ropper|ROPgadget|ropgadget|one_gadget|pwntools|checksec|readelf|objdump|nm|strings)$",
+   "flags": "",
+   "cat": "exploit-dev",
+   "desc": "exploit development / payload"
+  },
+  {
+   "pattern": "^(gdb|lldb|strace|ltrace|radare2|r2|ghidra|rizin|rz-bin|rz-asm|cutter|retdec|angr|frida|frida-trace|lief|pefile|lief|angr)$",
+   "flags": "",
+   "cat": "reverse",
+   "desc": "debugging / reverse engineering"
+  },
+  {
+   "pattern": "^(capa|floss|yara|yara-python|ssdeep|hashdeep|binwalk|unblob|die|detect-it-easy|malduck|peid|pestudio|triid)$",
+   "flags": "",
+   "cat": "malware",
+   "desc": "malware triage / detection"
+  },
+  {
+   "pattern": "^(vivisect|rz-ghidra|ghidra-headless|apkid|quark-engine|jadx|apktool|dex2jar|smali|baksmali|d2j-dex2jar|enjarify|jadx)$",
+   "flags": "",
+   "cat": "mobile",
+   "desc": "mobile / APK analysis"
+  },
+  {
+   "pattern": "^(ilspycmd|ildasm|dnspy|de4dot|dotpeek|monodis|mono|dnfile|dnlib|pyinstxtractor|unpyc37)$",
+   "flags": "",
+   "cat": "managed",
+   "desc": ".NET / managed analysis"
+  },
+  {
+   "pattern": "^(macho-parser|lief|otool|r2|rabin2|jtool|jtool2)$",
+   "flags": "",
+   "cat": "mach-o",
+   "desc": "Mach-O analysis"
+  },
+  {
+   "pattern": "^(chisel|ligolo|ligolo-ng|gost|pwncat|socat|nc$|ncat|netcat|ssh-proxy|sshuttle|iodine|dnscat|sshuttle|ptunnel|reGeorg|chisel)$",
+   "flags": "",
+   "cat": "pivot",
+   "desc": "tunnels / pivoting / relays"
+  },
+  {
+   "pattern": "^(bettercap|mitmproxy|mitmdump|zaproxy|burp|responder|eternalblue|metasploit|responder)$",
+   "flags": "",
+   "cat": "mitm",
+   "desc": "MITM / interception"
+  },
+  {
+   "pattern": "^(tcpreplay|termshark|ngrep|snort|suricata|zeek|bro|tshark|tcpdump|arpwatch|wireshark)$",
+   "flags": "",
+   "cat": "traffic",
+   "desc": "traffic analysis / IDS"
+  },
+  {
+   "pattern": "^(hping3|scapy|arpspoof|dsniff|yersinia|rinetd|ncat|nping)$",
+   "flags": "",
+   "cat": "network-attack",
+   "desc": "packet crafting / protocol abuse"
+  },
+  {
+   "pattern": "^(wifite|aircrack-ng|airmon-ng|reaver|bully|pixiewps|hcxdumptool|kismet|mdk4|wifite|bettercap)$",
+   "flags": "",
+   "cat": "wireless",
+   "desc": "wireless assessment"
+  },
+  {
+   "pattern": "^(radvpn|tap tun2socks)$",
+   "flags": "",
+   "cat": "vpn",
+   "desc": "VPN / tunnel protocols"
+  },
+  {
+   "pattern": "^(aws|gcloud|az|kubectl|doctl|scw|heroku|cloud_enum|s3scanner|cloud-buckets|s3enum|aws-vault)$",
+   "flags": "",
+   "cat": "cloud",
+   "desc": "cloud enumeration"
+  },
+  {
+   "pattern": "^(terraform|terrascan|tfsec|checkov|kube-bench|kube-hunter|trivy|grype|syft|anchore|osv-scanner|trivy)$",
+   "flags": "",
+   "cat": "supplychain",
+   "desc": "IaC / supply chain / SBOM"
+  },
+  {
+   "pattern": "^(git|dvcs-pwn|git-dumper|GitDumper|gitleaks|trufflehog|semgrep|bandit|trivy|checkov)$",
+   "flags": "",
+   "cat": "secret-scanner",
+   "desc": "secret / source scanning"
+  },
+  {
+   "pattern": "^(msfconsole|sliver|empire|mythic|covenant|koadic)$",
+   "flags": "",
+   "cat": "c2",
+   "desc": "C2 frameworks"
+  },
+  {
+   "pattern": "^(volatility|vol.py|bulk_extractor|foremost|sleuthkit|fls|icat|tsk_recover|photorec|testdisk|autopsy|bulk_extractor)$",
+   "flags": "",
+   "cat": "forensics",
+   "desc": "forensics / carving"
+  },
+  {
+   "pattern": "^(hashcat|john|ophcrack|hashid|hash-identifier|pdfcrack|office2john|vncdotool)$",
+   "flags": "",
+   "cat": "passwords",
+   "desc": "password cracking corpora"
+  },
+  {
+   "pattern": "^(exploitdb|searchsploit|cvedb|cve-bin-tool|osv-scanner|grype|vulncheck|nuclei-templates)$",
+   "flags": "",
+   "cat": "cve",
+   "desc": "CVE / exploit matching"
+  },
+  {
+   "pattern": "^(searchsploit|exploitdb|metasploit|pipe$|msfvenom|sliver-client|cobalt-strike)$",
+   "flags": "",
+   "cat": "exploit-db",
+   "desc": "public exploit lookup"
+  },
+  {
+   "pattern": "^(cutycapt|aquatone|gobuster|eyewitness|gowitness|br0$|screencapture)$",
+   "flags": "",
+   "cat": "evidence",
+   "desc": "screenshots / evidence capture"
+  },
+  {
+   "pattern": "^(ripgrep|rg|ag|fd|find|locate|jq|yq|xmllint|htmlq|csvkit|bat|exa|fd)$",
+   "flags": "",
+   "cat": "util",
+   "desc": "general utilities"
+  }
+ ],
+ "dirs": [
+  "/usr/bin",
+  "/usr/sbin",
+  "/usr/local/bin",
+  "/usr/local/sbin",
+  "/opt",
+  "/usr/share/nmap/scripts",
+  "/usr/share/seclists"
+ ]
+}

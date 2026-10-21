@@ -1,0 +1,21 @@
+# secrets — never commit
+.env
+secrets.env
+*.key
+*.pem
+apis.json
+
+# runtime noise
+*.log
+install.log
+toolsmith/
+tools/
+engagements/
+node_modules/
+__pycache__/
+*.pyc
+
+# build artefacts
+*.apk
+*.png
+.DS_Store

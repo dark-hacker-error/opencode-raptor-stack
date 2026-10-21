@@ -1,0 +1,678 @@
+{
+ "version": 1,
+ "apis": [
+  {
+   "id": "hikerapi_phone",
+   "name": "HikerAPI \u2014 phone to full profile",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://api.hikerapi.com/v2/user/by/id?id={phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "header",
+   "headers": {
+    "accept": "application/json",
+    "x-access-key": "{key}"
+   },
+   "fields": [
+    "name",
+    "gender",
+    "age",
+    "country",
+    "state",
+    "city",
+    "pincode",
+    "address",
+    "email",
+    "carrier",
+    "line_type",
+    "sim"
+   ],
+   "notes": "Returns name, gender, location, carrier, email for an Indian mobile number."
+  },
+  {
+   "id": "hikerapi_username",
+   "name": "HikerAPI \u2014 username to profile",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://api.hikerapi.com/v2/user/by/username?username={username}",
+   "params": [
+    "username"
+   ],
+   "auth": "header",
+   "headers": {
+    "accept": "application/json",
+    "x-access-key": "{key}"
+   },
+   "notes": "Username lookup on the same provider."
+  },
+  {
+   "id": "numverify",
+   "name": "NumVerify / apilayer \u2014 phone validation",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://api.apilayer.com/validate/phone?api_key={key}&phone={phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "query",
+   "fields": [
+    "valid",
+    "country_code",
+    "country_name",
+    "location",
+    "carrier",
+    "line_type"
+   ],
+   "notes": "Validity, carrier, line type, location."
+  },
+  {
+   "id": "abstractapi_phone",
+   "name": "AbstractAPI \u2014 phone validation",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://phoneenquiry.p.rapidapi.com/phone?api_key={key}&phoneNumber={phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "query",
+   "notes": "RapidAPI variant. Needs x-rapidapi-key + x-rapidapi-host headers."
+  },
+  {
+   "id": "veriphone",
+   "name": "Veriphone \u2014 phone intelligence",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://api.veriphone.io/v2/validate?api_key={key}&phone={phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "query",
+   "fields": [
+    "phone_number",
+    "country",
+    "location",
+    "carrier",
+    "line_type",
+    "status"
+   ]
+  },
+  {
+   "id": "melissa_phone",
+   "name": "Melissa \u2014 phone reverse lookup",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://api.melissa.com/v2/phone?key={key}&phone={phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "query",
+   "fields": [
+    "phone",
+    "name",
+    "address",
+    "ip_address"
+   ],
+   "notes": "Name + address from a phone number."
+  },
+  {
+   "id": "twilio_lookup",
+   "name": "Twilio Lookup \u2014 carrier & line type",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://lookup.twilio.com/v2/PhoneNumbers/{phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "basic",
+   "fields": [
+    "caller_name",
+    "country_code",
+    "phone_number",
+    "carrier",
+    "line_type_intelligence",
+    "sim_swap"
+   ]
+  },
+  {
+   "id": "telnyx_lookup",
+   "name": "Telnyx Lookup \u2014 caller name",
+   "category": "phone",
+   "method": "GET",
+   "url": "https://lookup.telnyx.com/v2/phone_numbers/{phone}",
+   "params": [
+    "phone"
+   ],
+   "auth": "bearer",
+   "fields": [
+    "caller_name",
+    "carrier_name",
+    "line_type",
+    "valid_number"
+   ]
+  },
+  {
+   "id": "emailrep",
+   "name": "EmailRep \u2014 email reputation & presence",
+   "category": "email",
+   "method": "GET",
+   "url": "https://emailrep.io/{email}",
+   "params": [
+    "email"
+   ],
+   "auth": "none",
+   "fields": [
+    "reputation",
+    "details",
+    "blacklisted",
+    "details.profiles"
+   ],
+   "notes": "Free, no key. Checks social/breach presence."
+  },
+  {
+   "id": "zerobounce",
+   "name": "ZeroBounce \u2014 email validation",
+   "category": "email",
+   "method": "GET",
+   "url": "https://api.zerobounce.net/v2/validate?api_key={key}&email={email}",
+   "params": [
+    "email"
+   ],
+   "auth": "query",
+   "fields": [
+    "status",
+    "sub_status",
+    "country",
+    "city",
+    "free_email",
+    "did_you_mean"
+   ]
+  },
+  {
+   "id": "neverbounce",
+   "name": "NeverBounce \u2014 email validation",
+   "category": "email",
+   "method": "GET",
+   "url": "https://api.neverbounce.com/v2/validate/email?api_key={key}&email={email}",
+   "params": [
+    "email"
+   ],
+   "auth": "query",
+   "fields": [
+    "status",
+    "reason",
+    "is_disposable",
+    "accept_all"
+   ]
+  },
+  {
+   "id": "apilayer_email",
+   "name": "apilayer \u2014 email validation",
+   "category": "email",
+   "method": "GET",
+   "url": "https://api.apilayer.com/email_validation?api_key={key}&email={email}",
+   "params": [
+    "email"
+   ],
+   "auth": "query",
+   "fields": [
+    "valid",
+    "deliverability",
+    "is_disposable",
+    "country",
+    "region"
+   ]
+  },
+  {
+   "id": "hibp_account",
+   "name": "HaveIBeenPwned \u2014 breach presence",
+   "category": "email",
+   "method": "GET",
+   "url": "https://haveibeenpwned.com/api/v3/breachedaccount/{email}?truncateResponse=false",
+   "params": [
+    "email"
+   ],
+   "auth": "header",
+   "headers": {
+    "accept": "application/json",
+    "hibp-api-key": "{key}"
+   },
+   "fields": [
+    "Name",
+    "BreachDate",
+    "DataClasses"
+   ]
+  },
+  {
+   "id": "dehashed",
+   "name": "DeHashed \u2014 email in breach corpora",
+   "category": "email",
+   "method": "GET",
+   "url": "https://api.dehashed.com/search?query=email:{email}&api_key={key}",
+   "params": [
+    "email"
+   ],
+   "auth": "query",
+   "notes": "Returns matched records. Use the operator's own licensed account."
+  },
+  {
+   "id": "intelx",
+   "name": "IntelligenceX \u2014 phone/email/domain records",
+   "category": "email",
+   "method": "GET",
+   "url": "https://2.intelx.io/phonebook/search?query={query}&api_key={key}",
+   "params": [
+    "query"
+   ],
+   "auth": "query",
+   "fields": [
+    "phone",
+    "email",
+    "name",
+    "domain"
+   ]
+  },
+  {
+   "id": "ipinfo",
+   "name": "ipinfo.io \u2014 IP & ASN",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://ipinfo.io/{ip}/json?token={key}",
+   "params": [
+    "ip"
+   ],
+   "auth": "query",
+   "fields": [
+    "ip",
+    "city",
+    "region",
+    "country",
+    "loc",
+    "org",
+    "postal",
+    "timezone",
+    "hostname"
+   ]
+  },
+  {
+   "id": "ipwhois",
+   "name": "ipwho.is \u2014 IP geolocation",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://ipwho.is/{ip}",
+   "params": [
+    "ip"
+   ],
+   "auth": "none",
+   "fields": [
+    "success",
+    "ip",
+    "city",
+    "region",
+    "country",
+    "connection",
+    "timezone"
+   ]
+  },
+  {
+   "id": "ipapi_co",
+   "name": "ipapi.co \u2014 IP geolocation",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://ipapi.co/{ip}/json/",
+   "params": [
+    "ip"
+   ],
+   "auth": "none",
+   "fields": [
+    "ip",
+    "city",
+    "region",
+    "country_name",
+    "latitude",
+    "longitude",
+    "org",
+    "asn"
+   ]
+  },
+  {
+   "id": "ip_api_com",
+   "name": "ip-api.com \u2014 IP geolocation",
+   "category": "ip",
+   "method": "GET",
+   "url": "http://ip-api.com/json/{ip}?fields=status,message,continent,country,countryCode,region,regionName,city,district,zip,lat,lon,timezone,offset,currency,isp,org,as,reverse,query",
+   "params": [
+    "ip"
+   ],
+   "auth": "none",
+   "fields": [
+    "country",
+    "city",
+    "isp",
+    "as",
+    "reverse"
+   ]
+  },
+  {
+   "id": "abstractapi_ip",
+   "name": "AbstractAPI \u2014 IP geolocation",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://ipgeolocation.abstractapi.com/v1/?api_key={key}&ip_address={ip}",
+   "params": [
+    "ip"
+   ],
+   "auth": "query",
+   "fields": [
+    "ip",
+    "city",
+    "region",
+    "country",
+    "latitude",
+    "longitude",
+    "timezone",
+    "asn"
+   ]
+  },
+  {
+   "id": "ipqualityscore",
+   "name": "IPQualityScore \u2014 proxy / fraud flags",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://ipqualityscore.com/api/json/ip/{key}/{ip}",
+   "params": [
+    "ip"
+   ],
+   "auth": "query",
+   "fields": [
+    "fraud_score",
+    "proxy",
+    "vpn",
+    "tor",
+    "active_vpn",
+    "recent_abuse",
+    "country"
+   ]
+  },
+  {
+   "id": "criminalip",
+   "name": "CriminalIP \u2014 IP intelligence",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://api.criminalip.io/v1/banner?api_key={key}&query={ip}",
+   "params": [
+    "ip"
+   ],
+   "auth": "query",
+   "fields": [
+    "ip",
+    "is_vpn",
+    "is_proxy",
+    "is_tor",
+    "country_code"
+   ]
+  },
+  {
+   "id": "shodan_host",
+   "name": "Shodan \u2014 host services & vulns",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://api.shodan.io/shodan/host/{ip}?key={key}",
+   "params": [
+    "ip"
+   ],
+   "auth": "query",
+   "fields": [
+    "ports",
+    "vulns",
+    "hostnames",
+    "org",
+    "isp",
+    "os",
+    "country_name"
+   ]
+  },
+  {
+   "id": "censys_host",
+   "name": "Censys \u2014 host services",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://search.censys.io/api/v2/hosts/{ip}",
+   "params": [
+    "ip"
+   ],
+   "auth": "basic",
+   "fields": [
+    "services",
+    "location",
+    "autonomous_system"
+   ]
+  },
+  {
+   "id": "virustotal_ip",
+   "name": "VirusTotal \u2014 IP reputation",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://www.virustotal.com/api/v3/ip_addresses/{ip}",
+   "params": [
+    "ip"
+   ],
+   "auth": "header",
+   "headers": {
+    "x-apikey": "{key}",
+    "accept": "application/json"
+   },
+   "fields": [
+    "last_analysis_stats",
+    "country",
+    "as_owner"
+   ]
+  },
+  {
+   "id": "otx_ip",
+   "name": "AlienVault OTX \u2014 IP pulses",
+   "category": "ip",
+   "method": "GET",
+   "url": "https://otx.alienvault.com/api/v1/indicators/IPv4/{ip}/general",
+   "params": [
+    "ip"
+   ],
+   "auth": "none",
+   "fields": [
+    "pulse_info",
+    "reputation"
+   ]
+  },
+  {
+   "id": "opencage",
+   "name": "OpenCage \u2014 forward geocoding",
+   "category": "geo",
+   "method": "GET",
+   "url": "https://api.opencagedata.com/geocode/v1/json?q={q}&key={key}",
+   "params": [
+    "q"
+   ],
+   "auth": "query",
+   "fields": [
+    "results.lat",
+    "results.lng",
+    "results.components",
+    "results.formatted"
+   ]
+  },
+  {
+   "id": "geocode_maps_co",
+   "name": "geocode.maps.co \u2014 geocoding",
+   "category": "geo",
+   "method": "GET",
+   "url": "https://geocode.maps.co/search?q={q}&api_key={key}",
+   "params": [
+    "q"
+   ],
+   "auth": "query",
+   "fields": [
+    "lat",
+    "lon",
+    "address",
+    "type"
+   ]
+  },
+  {
+   "id": "google_geocode",
+   "name": "Google Geocoding \u2014 address to coords",
+   "category": "geo",
+   "method": "GET",
+   "url": "https://maps.googleapis.com/maps/api/geocode/json?address={q}&key={key}",
+   "params": [
+    "q"
+   ],
+   "auth": "query",
+   "fields": [
+    "results.geometry.location",
+    "results.formatted_address"
+   ]
+  },
+  {
+   "id": "hunter_domain",
+   "name": "Hunter.io \u2014 corporate email finder",
+   "category": "domain",
+   "method": "GET",
+   "url": "https://api.hunter.io/v2/domain-search?domain={domain}&api_key={key}",
+   "params": [
+    "domain"
+   ],
+   "auth": "query",
+   "fields": [
+    "data.email",
+    "data.pattern",
+    "data.emails"
+   ],
+   "notes": "Also gives the org's email naming pattern."
+  },
+  {
+   "id": "clearbit",
+   "name": "Clearbit \u2014 company enrichment",
+   "category": "domain",
+   "method": "GET",
+   "url": "https://company.clearbit.com/v2/companies/find?domain={domain}&key={key}",
+   "params": [
+    "domain"
+   ],
+   "auth": "query",
+   "fields": [
+    "name",
+    "description",
+    "metrics",
+    "tech"
+   ]
+  },
+  {
+   "id": "whoisxml",
+   "name": "WhoisXML \u2014 whois & history",
+   "category": "domain",
+   "method": "GET",
+   "url": "https://www.whoisxmlapi.com/whoisserver/WhoisService?apiKey={key}&domainName={domain}&outputFormat=JSON",
+   "params": [
+    "domain"
+   ],
+   "auth": "query",
+   "fields": [
+    "WhoisRecord",
+    "DomainName"
+   ]
+  },
+  {
+   "id": "securitytrails",
+   "name": "SecurityTrails \u2014 subdomain history",
+   "category": "domain",
+   "method": "GET",
+   "url": "https://api.securitytrails.com/v1/domain/{domain}/subdomains",
+   "params": [
+    "domain"
+   ],
+   "auth": "header",
+   "headers": {
+    "accept": "application/json",
+    "key": "{key}"
+   },
+   "fields": [
+    "subdomains"
+   ]
+  },
+  {
+   "id": "hibp_pwrange",
+   "name": "HaveIBeenPwned \u2014 password range (k-anonymity)",
+   "category": "breach",
+   "method": "GET",
+   "url": "https://api.pwnedpasswords.com/range/{prefix}",
+   "params": [
+    "prefix"
+   ],
+   "auth": "none",
+   "notes": "Feed the first 5 chars of the hash. Response is the suffix list \u2014 matches are computed locally."
+  },
+  {
+   "id": "otx_domain",
+   "name": "AlienVault OTX \u2014 domain pulses",
+   "category": "domain",
+   "method": "GET",
+   "url": "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/general",
+   "params": [
+    "domain"
+   ],
+   "auth": "none",
+   "fields": [
+    "pulse_info",
+    "reputation"
+   ]
+  },
+  {
+   "id": "serpapi",
+   "name": "SerpAPI \u2014 search-engine intelligence",
+   "category": "person",
+   "method": "GET",
+   "url": "https://serpapi.com/search.json?api_key={key}&q={q}",
+   "params": [
+    "q"
+   ],
+   "auth": "query",
+   "fields": [
+    "organic_results",
+    "knowledge_graph"
+   ],
+   "notes": "Use for people/dork searches."
+  },
+  {
+   "id": "google_cse",
+   "name": "Google Custom Search \u2014 dorking",
+   "category": "person",
+   "method": "GET",
+   "url": "https://www.googleapis.com/customsearch/v1?key={key}&cx={cx}&q={q}",
+   "params": [
+    "q",
+    "cx"
+   ],
+   "auth": "query",
+   "fields": [
+    "items",
+    "searchInformation"
+   ]
+  },
+  {
+   "id": "telegram_check",
+   "name": "Telegram \u2014 public profile check",
+   "category": "person",
+   "method": "GET",
+   "url": "https://t.me/{username}",
+   "params": [
+    "username"
+   ],
+   "auth": "none",
+   "raw": "text",
+   "notes": "Unauthenticated profile read: existence, display name, bio, subscriber count."
+  }
+ ],
+ "keys": {},
+ "custom": []
+}
