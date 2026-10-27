@@ -33,7 +33,18 @@ opencode-raptor-stack/
 
 ## Setup — one command
 
+The repo is **private**, so the one-liner carries a GitHub token (`GITHUB_TOKEN` with `repo` scope).
 Fresh box, nothing cloned:
+
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash'
+```
+
+That single line downloads the whole stack, installs all 206 agents, 107 commands, 196 skills and
+2 plugins, seeds `opencode.json` with the 5 MCP servers, and enables the GitHub MCP with the same
+token. Re-run the same line to update.
+
+If you make the repo public (or use a public fork), the plain form works:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
@@ -42,13 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-s
 With the offensive toolchain (slow — apt/go/pip/cargo/npm):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash -s -- --tools
-```
-
-With the GitHub MCP wired to your token:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash -s -- --github-token ghp_xxxxxxxx
+curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash -s -- --tools
 ```
 
 From a local checkout:
@@ -149,7 +154,7 @@ Re-run the same one command — it is idempotent and overwrites files in place w
 config and API keys:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
+GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash'
 opencode service restart
 ```
 

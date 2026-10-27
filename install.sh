@@ -5,11 +5,15 @@
 #  Installs the complete OpenCode workspace:
 #    agents · commands · skills · plugins · MCP servers · Raptor runtime
 #
-#  One command (fresh box, nothing cloned):
+#  One command (private repo, token has repo scope):
+#    GITHUB_TOKEN=ghp_xxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
+#      https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash'
+#
+#  One command (public fork):
 #    curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
 #
 #  With the offensive toolchain (apt/go/pip/cargo/npm — slow):
-#    curl -fsSL .../install.sh | bash -s -- --tools
+#    ... | bash -s -- --tools
 #
 #  Local checkout:
 #    bash install.sh [--tools] [--github-token <pat>] [--dir <config-dir>]
@@ -18,7 +22,6 @@ set -uo pipefail
 
 REPO="dark-hacker-error/opencode-raptor-stack"
 BRANCH="${RAPTOR_REF:-main}"
-RAW_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 TARBALL_URL="https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}"
 
 GREEN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; DIM=$'\033[2m'; B=$'\033[1m'; R=$'\033[0m'
@@ -42,11 +45,28 @@ fi
 if [ -z "$HERE" ] || [ ! -f "$HERE/.stack-version" ] || [ ! -d "$HERE/skills" ]; then
   say "${B}OpenCode Raptor Stack — bootstrap${R}"
   dim "fetching ${REPO}@${BRANCH}"
+
+  # Private-repo support: a token may arrive via env or via --github-token.
+  BOOT_TOKEN="${RAPTOR_TOKEN:-${GITHUB_PERSONAL_ACCESS_TOKEN:-${GITHUB_TOKEN:-}}}"
+  _prev=""
+  for _a in "$@"; do
+    [ "$_prev" = "--github-token" ] && BOOT_TOKEN="$_a"
+    _prev="$_a"
+  done
+
   TMP="$(mktemp -d "${TMPDIR:-/tmp}/raptor-stack.XXXXXX")" || die "mktemp failed"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 3 "$TARBALL_URL" -o "$TMP/stack.tar.gz" || die "download failed: $TARBALL_URL"
+    if [ -n "$BOOT_TOKEN" ]; then
+      curl -fsSL --retry 3 -H "Authorization: token ${BOOT_TOKEN}" "$TARBALL_URL" -o "$TMP/stack.tar.gz" || die "download failed (private repo — pass --github-token or set RAPTOR_TOKEN)"
+    else
+      curl -fsSL --retry 3 "$TARBALL_URL" -o "$TMP/stack.tar.gz" || die "download failed (private repo — pass --github-token or set RAPTOR_TOKEN)"
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$TMP/stack.tar.gz" "$TARBALL_URL" || die "download failed: $TARBALL_URL"
+    if [ -n "$BOOT_TOKEN" ]; then
+      wget -qO "$TMP/stack.tar.gz" --header="Authorization: token ${BOOT_TOKEN}" "$TARBALL_URL" || die "download failed (private repo — pass --github-token or set RAPTOR_TOKEN)"
+    else
+      wget -qO "$TMP/stack.tar.gz" "$TARBALL_URL" || die "download failed (private repo — pass --github-token or set RAPTOR_TOKEN)"
+    fi
   else
     die "need curl or wget"
   fi
@@ -64,7 +84,7 @@ RUN="${HOME}/.raptor"
 WITH_TOOLS=0
 WITH_CONFIG=1
 WITH_RUNTIME=1
-GH_TOKEN_ARG="${GITHUB_PERSONAL_ACCESS_TOKEN:-}"
+GH_TOKEN_ARG="${GITHUB_PERSONAL_ACCESS_TOKEN:-${GITHUB_TOKEN:-${RAPTOR_TOKEN:-}}}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -73,7 +93,7 @@ while [ $# -gt 0 ]; do
     --dir)            CFG="${2:-}"; shift 2 ;;
     --no-config)      WITH_CONFIG=0; shift ;;
     --no-runtime)     WITH_RUNTIME=0; shift ;;
-    -h|--help)        sed -n '2,22p' "$0"; exit 0 ;;
+    -h|--help)        sed -n '2,20p' "$0"; exit 0 ;;
     *)                warn "unknown flag: $1"; shift ;;
   esac
 done
