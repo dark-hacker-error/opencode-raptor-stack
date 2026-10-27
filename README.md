@@ -37,7 +37,7 @@ The repo is **private**, so the one-liner carries a GitHub token (`GITHUB_TOKEN`
 Fresh box, nothing cloned:
 
 ```bash
-GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash'
+GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/dark-hacker-error/opencode-raptor-stack/contents/install.sh | bash'
 ```
 
 That single line downloads the whole stack, installs all 206 agents, 107 commands, 196 skills and
@@ -154,7 +154,7 @@ Re-run the same one command — it is idempotent and overwrites files in place w
 config and API keys:
 
 ```bash
-GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash'
+GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/dark-hacker-error/opencode-raptor-stack/contents/install.sh | bash'
 opencode service restart
 ```
 

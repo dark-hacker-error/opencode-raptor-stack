@@ -7,7 +7,8 @@
 #
 #  One command (private repo, token has repo scope):
 #    GITHUB_TOKEN=ghp_xxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" \
-#      https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash'
+#      -H "Accept: application/vnd.github.raw" \
+#      https://api.github.com/repos/dark-hacker-error/opencode-raptor-stack/contents/install.sh | bash'
 #
 #  One command (public fork):
 #    curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
