@@ -1,13 +1,25 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  RAPTOR STACK — setup / restore
-#  Installs the Raptor autonomous offensive-security stack into OpenCode V2.
+#  OPENCODE RAPTOR STACK — one-command setup / restore
 #
-#  Usage:
+#  Installs the complete OpenCode workspace:
+#    agents · commands · skills · plugins · MCP servers · Raptor runtime
+#
+#  One command (fresh box, nothing cloned):
 #    curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
-#    bash install.sh [--tools] [--github-token <t>] [--dir <opencode-config-dir>]
+#
+#  With the offensive toolchain (apt/go/pip/cargo/npm — slow):
+#    curl -fsSL .../install.sh | bash -s -- --tools
+#
+#  Local checkout:
+#    bash install.sh [--tools] [--github-token <pat>] [--dir <config-dir>]
 # =============================================================================
 set -uo pipefail
+
+REPO="dark-hacker-error/opencode-raptor-stack"
+BRANCH="${RAPTOR_REF:-main}"
+RAW_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+TARBALL_URL="https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}"
 
 GREEN=$'\033[32m'; YEL=$'\033[33m'; RED=$'\033[31m'; DIM=$'\033[2m'; B=$'\033[1m'; R=$'\033[0m'
 say()  { printf '%s\n' "$*"; }
@@ -15,137 +27,211 @@ ok()   { say "${GREEN}[+]${R} $*"; }
 warn() { say "${YEL}[!]${R} $*"; }
 err()  { say "${RED}[x]${R} $*"; }
 dim()  { say "${DIM}    $*${R}"; }
+die()  { err "$*"; exit 1; }
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CFG="${HOME}/.config/opencode"
+# --------------------------------------------------------------- bootstrap
+# When this script arrives through a pipe there is no checkout next to it.
+# Download the repo tarball, then re-run the real installer from the extract.
+SELF="${BASH_SOURCE[0]:-}"
+if [ -n "$SELF" ] && [ -f "$SELF" ]; then
+  HERE="$(cd "$(dirname "$SELF")" && pwd)"
+else
+  HERE=""
+fi
+
+if [ -z "$HERE" ] || [ ! -f "$HERE/.stack-version" ] || [ ! -d "$HERE/skills" ]; then
+  say "${B}OpenCode Raptor Stack — bootstrap${R}"
+  dim "fetching ${REPO}@${BRANCH}"
+  TMP="$(mktemp -d "${TMPDIR:-/tmp}/raptor-stack.XXXXXX")" || die "mktemp failed"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 3 "$TARBALL_URL" -o "$TMP/stack.tar.gz" || die "download failed: $TARBALL_URL"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$TMP/stack.tar.gz" "$TARBALL_URL" || die "download failed: $TARBALL_URL"
+  else
+    die "need curl or wget"
+  fi
+  tar -xzf "$TMP/stack.tar.gz" -C "$TMP" || die "extract failed"
+  SRC="$(find "$TMP" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+  [ -n "$SRC" ] && [ -f "$SRC/.stack-version" ] || die "unexpected archive layout"
+  bash "$SRC/install.sh" "$@" ; rc=$?
+  rm -rf "$TMP"
+  exit $rc
+fi
+
+# --------------------------------------------------------------- args
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
 RUN="${HOME}/.raptor"
 WITH_TOOLS=0
-GH_TOKEN_ARG=""
+WITH_CONFIG=1
+WITH_RUNTIME=1
+GH_TOKEN_ARG="${GITHUB_PERSONAL_ACCESS_TOKEN:-}"
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --tools) WITH_TOOLS=1; shift ;;
-    --github-token) GH_TOKEN_ARG="$2"; shift 2 ;;
-    --dir) CFG="$2"; shift 2 ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
-    *) shift ;;
+    --tools)          WITH_TOOLS=1; shift ;;
+    --github-token)   GH_TOKEN_ARG="${2:-}"; shift 2 ;;
+    --dir)            CFG="${2:-}"; shift 2 ;;
+    --no-config)      WITH_CONFIG=0; shift ;;
+    --no-runtime)     WITH_RUNTIME=0; shift ;;
+    -h|--help)        sed -n '2,22p' "$0"; exit 0 ;;
+    *)                warn "unknown flag: $1"; shift ;;
   esac
 done
 
-say "${B}Raptor stack setup${R}"
+STACK_VERSION="$(cat "$HERE/.stack-version" 2>/dev/null || echo unknown)"
+
+say ""
+say "${B}OpenCode Raptor Stack${R}  ${DIM}v${STACK_VERSION}${R}"
 dim "source: $HERE"
 dim "target: $CFG"
 say ""
 
-# ---------------------------------------------------------------- 1. layout
+# --------------------------------------------------------------- 1. layout
 ok "creating layout"
-mkdir -p "$CFG"/{agents,commands,plugins,skills} "$RUN"/{engagements,toolsmith}
-chmod 700 "$RUN"
+mkdir -p "$CFG"/{agents,commands,plugins,skills} || die "cannot create $CFG"
+[ "$WITH_RUNTIME" = "1" ] && mkdir -p "$RUN"/{engagements,toolsmith} && chmod 700 "$RUN"
 
-# ---------------------------------------------------------------- 2. agents
+# --------------------------------------------------------------- 2. agents
 if [ -d "$HERE/agents" ]; then
-  cp -rv "$HERE/agents/." "$CFG/agents/" 2>/dev/null | sed 's/^/    /'
-  ok "agents installed"
+  cp -a "$HERE/agents/." "$CFG/agents/" || warn "some agents failed to copy"
+  ok "agents     : $(find "$HERE/agents" -type f -name '*.md' | wc -l | tr -d ' ')"
 fi
 
-# ---------------------------------------------------------------- 3. commands
+# --------------------------------------------------------------- 3. commands
 if [ -d "$HERE/commands" ]; then
-  cp -rv "$HERE/commands/." "$CFG/commands/" 2>/dev/null | sed 's/^/    /'
-  ok "commands installed"
+  cp -a "$HERE/commands/." "$CFG/commands/" || warn "some commands failed to copy"
+  ok "commands   : $(find "$HERE/commands" -type f -name '*.md' | wc -l | tr -d ' ')"
 fi
 
-# ---------------------------------------------------------------- 4. plugins
-if [ -d "$HERE/plugins" ]; then
-  cp -rv "$HERE/plugins/." "$CFG/plugins/" 2>/dev/null | sed 's/^/    /'
-  ok "plugins installed"
-fi
-
-# ---------------------------------------------------------------- 5. skills
+# --------------------------------------------------------------- 4. skills
 if [ -d "$HERE/skills" ]; then
-  for s in "$HERE/skills"/*/; do
-    [ -d "$s" ] || continue
-    name="$(basename "$s")"
-    mkdir -p "$CFG/skills/$name"
-    cp -r "$s." "$CFG/skills/$name/" 2>/dev/null
-    dim "skill: $name"
+  cp -a "$HERE/skills/." "$CFG/skills/" || warn "some skills failed to copy"
+  ok "skills     : $(find "$HERE/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+fi
+
+# --------------------------------------------------------------- 5. plugins
+if [ -d "$HERE/plugins" ]; then
+  cp -a "$HERE/plugins/." "$CFG/plugins/" || warn "some plugins failed to copy"
+  ok "plugins    : $(find "$HERE/plugins" -maxdepth 1 -type f | wc -l | tr -d ' ')"
+fi
+
+# --------------------------------------------------------------- 6. runtime
+if [ "$WITH_RUNTIME" = "1" ]; then
+  for f in master-attacks.json master-attack-index.md kali-catalog.json; do
+    [ -f "$HERE/runtime/$f" ] && cp "$HERE/runtime/$f" "$RUN/$f" && dim "runtime: $f"
   done
-  ok "skills installed ($(ls -1 "$HERE/skills" | wc -l))"
+  [ -f "$HERE/runtime/api-registry.template.json" ] && cp "$HERE/runtime/api-registry.template.json" "$RUN/api-registry.template.json"
+  [ -f "$HERE/scripts/install-tools.sh" ] && cp "$HERE/scripts/install-tools.sh" "$RUN/install-tools.sh" && chmod +x "$RUN/install-tools.sh"
+  for f in verify.sh build_master_index.py segment_attacks.py; do
+    [ -f "$HERE/scripts/$f" ] && cp "$HERE/scripts/$f" "$RUN/$f" && chmod +x "$RUN/$f" 2>/dev/null
+  done
+
+  # API keys: keep the ones already on this box, otherwise start from the template
+  if [ -f "$RUN/apis.json" ]; then
+    dim "api registry: existing keys preserved"
+  else
+    cp "$RUN/api-registry.template.json" "$RUN/apis.json" 2>/dev/null
+    chmod 600 "$RUN/apis.json" 2>/dev/null
+    dim "api registry: created from template (add keys with privdata_key)"
+  fi
+  ok "runtime    : $RUN"
 fi
 
-# ---------------------------------------------------------------- 6. runtime
-for f in master-attacks.json master-attack-index.md kali-catalog.json; do
-  [ -f "$HERE/runtime/$f" ] && cp "$HERE/runtime/$f" "$RUN/$f" && dim "runtime: $f"
-done
-[ -f "$HERE/runtime/api-registry.template.json" ] && cp "$HERE/runtime/api-registry.template.json" "$RUN/api-registry.template.json"
-[ -f "$HERE/scripts/install-tools.sh" ] && cp "$HERE/scripts/install-tools.sh" "$RUN/install-tools.sh" && chmod +x "$RUN/install-tools.sh"
-for f in verify.sh build_master_index.py segment_attacks.py; do
-  [ -f "$HERE/scripts/$f" ] && cp "$HERE/scripts/$f" "$RUN/$f" && chmod +x "$RUN/$f" 2>/dev/null
-done
-
-# API keys: keep the ones already on this box, otherwise start from the template
-if [ -f "$RUN/apis.json" ]; then
-  dim "api registry: existing keys preserved"
-else
-  cp "$RUN/api-registry.template.json" "$RUN/apis.json" 2>/dev/null
-  chmod 600 "$RUN/apis.json" 2>/dev/null
-  dim "api registry: created from template (add keys with privdata_key)"
-fi
-ok "runtime installed"
-
-# ---------------------------------------------------------------- 7. config
-CFGJSON="$CFG/opencode.json"
-if [ -f "$CFGJSON" ]; then
-  cp "$CFGJSON" "$CFG/opencode.json.bak-raptor"
-  dim "config backed up"
-fi
-python3 - "$CFGJSON" "$GH_TOKEN_ARG" "$HERE" <<'PY'
+# --------------------------------------------------------------- 7. config
+if [ "$WITH_CONFIG" = "1" ]; then
+  CFGJSON="$CFG/opencode.json"
+  if [ -f "$CFGJSON" ]; then
+    cp "$CFGJSON" "$CFG/opencode.json.bak-raptor" 2>/dev/null
+    dim "config backed up: opencode.json.bak-raptor"
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    warn "python3 not found — skipping config merge (copy opencode.json.template manually)"
+  else
+    python3 - "$CFGJSON" "$HERE/opencode.json.template" "$GH_TOKEN_ARG" <<'PY'
 import json, os, sys
-path, tok, here = sys.argv[1], sys.argv[2], sys.argv[3]
-cfg = {}
-if os.path.exists(path):
-    try: cfg = json.load(open(path))
-    except Exception: cfg = {}
-else:
-    # fresh box: start from the shipped template so the REA / context7 /
-    # playwright / chrome-devtools MCP servers are not lost
-    tpl = os.path.join(here, "opencode.json.template")
-    if os.path.exists(tpl):
-        try: cfg = json.load(open(tpl))
-        except Exception: cfg = {}
-        print("    config: seeded from opencode.json.template")
-cfg.setdefault("$schema", "https://opencode.ai/config.json")
 
+path, tpl_path, token = sys.argv[1], sys.argv[2], sys.argv[3]
+
+def load(p):
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+cfg = load(path)
+tpl = load(tpl_path)
+if not isinstance(cfg, dict):
+    cfg = {}
+
+cfg.setdefault("$schema", tpl.get("$schema", "https://opencode.ai/config.json"))
+
+# permissions: union, never remove an existing rule
 perms = cfg.setdefault("permissions", [])
-have = {p.get("action") for p in perms if isinstance(p, dict)}
-for act, res, eff in [("skill","*","allow"), ("webfetch","*","allow"), ("websearch","*","allow")]:
-    if act not in have:
-        perms.append({"action": act, "resource": res, "effect": eff})
+if not isinstance(perms, list):
+    perms = cfg["permissions"] = []
+have = {(p.get("action"), p.get("resource")) for p in perms if isinstance(p, dict)}
+for p in tpl.get("permissions", []):
+    if (p.get("action"), p.get("resource")) not in have:
+        perms.append(p)
+
+# mcp: template servers are defaults; an existing block always wins
+tpl_mcp = dict(tpl.get("mcp", {}))
+tpl_mcp.pop("github", None)
+
+def merge(dst, src):
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict):
+            merge(dst[k], v)
+        else:
+            dst.setdefault(k, v)
 
 mcp = cfg.setdefault("mcp", {})
-if tok:
+if not isinstance(mcp, dict):
+    mcp = cfg["mcp"] = {}
+merge(mcp, tpl_mcp)
+
+if token and token != "<YOUR_GITHUB_PAT>":
     mcp["github"] = {
         "type": "local",
         "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
-        "environment": {
-            "GITHUB_PERSONAL_ACCESS_TOKEN": tok,
-            "GITHUB_PERSONAL_ACCESS_TOKEN": tok,
-        },
+        "environment": {"GITHUB_PERSONAL_ACCESS_TOKEN": token},
         "enabled": True,
     }
-    print("    mcp: github (token set)")
-json.dump(cfg, open(path, "w"), indent=2)
+    print("    mcp: github enabled (token set)")
+elif "github" in mcp:
+    print("    mcp: github left as configured")
+else:
+    print("    mcp: github skipped (pass --github-token to enable)")
+
+def server_names(d):
+    names = [k for k in d if k != "servers"]
+    if isinstance(d.get("servers"), dict):
+        names += list(d["servers"].keys())
+    return names
+
+print("    mcp: " + ", ".join(sorted(server_names(mcp))))
+
+os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+with open(path, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
 os.chmod(path, 0o600)
 PY
-ok "config written"
-
-# ---------------------------------------------------------------- 8. secrets
-if [ -n "$GH_TOKEN_ARG" ]; then
-  umask 077
-  { echo "# Raptor stack secrets — chmod 600, never commit"; echo "GITHUB_TOKEN=$GH_TOKEN_ARG"; } > "$RUN/secrets.env"
-  chmod 600 "$RUN/secrets.env"
-  ok "secrets stored ($RUN/secrets.env)"
+    [ $? -eq 0 ] && ok "config     : $CFGJSON" || warn "config merge failed"
+  fi
 fi
 
-# ---------------------------------------------------------------- 9. tools
+# --------------------------------------------------------------- 8. secrets
+if [ -n "$GH_TOKEN_ARG" ] && [ "$GH_TOKEN_ARG" != "<YOUR_GITHUB_PAT>" ]; then
+  umask 077
+  mkdir -p "$RUN"
+  { echo "# Raptor stack secrets — chmod 600, never commit"; echo "GITHUB_TOKEN=$GH_TOKEN_ARG"; } > "$RUN/secrets.env"
+  chmod 600 "$RUN/secrets.env"
+  ok "secrets    : $RUN/secrets.env"
+fi
+
+# --------------------------------------------------------------- 9. tools
 if [ "$WITH_TOOLS" = "1" ]; then
   warn "installing offensive toolchain (this takes a while)"
   bash "$RUN/install-tools.sh" || warn "installer returned non-zero, see $RUN/toolsmith/install.log"
@@ -154,21 +240,35 @@ else
   dim "skipping toolchain install (pass --tools to include it)"
 fi
 
-# ---------------------------------------------------------------- 10. verify
+# --------------------------------------------------------------- 10. verify
+AGENTS_N=$(find "$CFG/agents" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+SKILLS_N=$(find "$CFG/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+CMDS_N=$(find "$CFG/commands" -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+PLUG_N=$(find "$CFG/plugins" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')
+MCP_N=$(python3 -c "
+import json
+d = json.load(open('$CFG/opencode.json')).get('mcp', {})
+n = len([k for k in d if k != 'servers'])
+n += len(d.get('servers', {}) or {})
+print(n)
+" 2>/dev/null || echo '?')
+
 say ""
-ok "${B}Raptor stack installed${R}"
+say "${B}${GREEN}OpenCode Raptor Stack installed${R}"
 say ""
-say "  agent     : ${B}raptor${R}   (select it in opencode, or /raptor <target>)"
-say "  skills    : $(ls -1 "$CFG/skills" 2>/dev/null | wc -l)"
-say "  plugins   : $(ls -1 "$CFG/plugins" 2>/dev/null | wc -l)  (raptor, privdata)"
-say "  runtime   : $RUN"
-say "  index     : $(python3 -c "import json;print(json.load(open('$RUN/master-attacks.json'))['total'])" 2>/dev/null || echo '?') attack techniques"
+say "  agents     : ${B}${AGENTS_N}${R}   (incl. raptor, tiger, venon, modder)"
+say "  commands   : ${B}${CMDS_N}${R}"
+say "  skills     : ${B}${SKILLS_N}${R}"
+say "  plugins    : ${B}${PLUG_N}${R}   (raptor, privdata)"
+say "  mcp groups : ${B}${MCP_N}${R}   (rea, context7, playwright, chrome-devtools$([ -n "$GH_TOKEN_ARG" ] && echo ', github' || echo ''))"
+[ "$WITH_RUNTIME" = "1" ] && say "  runtime    : ${B}${RUN}${R}"
 say ""
 say "  next:"
 say "    1. ${B}opencode service restart${R}   # pick up the new plugins + MCP"
-say "    2. opencode  ->  select agent ${B}raptor${R}"
+say "    2. ${B}opencode${R}  ->  select agent ${B}raptor${R}"
 say "    3. ${B}/raptor https://target${R}"
 say ""
-dim "add API keys later:  privdata_key(api='hikerapi', key='...')"
+dim "add API keys later : privdata_key(api='hikerapi', key='...')"
 dim "install tools later: bash $RUN/install-tools.sh"
+dim "update later       : re-run this same command"
 say ""

@@ -11,7 +11,7 @@
  */
 
 import { execFileSync, spawn, spawnSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync, unlinkSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { homedir } from "node:os"
 
@@ -92,7 +92,27 @@ function saveState(dir: string, s: Json) {
 
 /* ------------------------------------------------------- toolchain catalog */
 
-type Install = { apt?: string; pip?: string; go?: string; cargo?: string; git?: string; note?: string }
+type ReleaseSpec = { repo: string; asset_regex?: string; extract?: string; dest?: string; install_cmd?: string }
+type Install = {
+  apt?: string
+  pip?: string
+  go?: string
+  cargo?: string
+  git?: string
+  npm?: string
+  gem?: string
+  /** direct download URL */
+  url?: string
+  /** destination file or directory for the url / release_gh kind */
+  dest?: string
+  /** treat the downloaded file as an archive and unpack it into dest */
+  extract?: boolean
+  /** github release: resolve newest release, match asset_regex, place/extract */
+  release_gh?: ReleaseSpec
+  /** shipped implementation in ~/.raptor/tools/local (value = script filename or directory) */
+  local?: string
+  note?: string
+}
 type ToolSpec = { bin: string; cmd: string; install?: Install; alt?: string }
 type Route = {
   phase: string
@@ -931,6 +951,561 @@ const ROUTES: Record<string, Route> = {
       T("diff", "diff {out}/surface_prev.txt {out}/surface_now.txt", { apt: "diffutils" }, "raptor_diff"),
     ],
   },
+
+  /* =========== extended families (source of truth: ~/.raptor/tool-registry.json) =========== */
+
+  /* ---------------- cloud & infrastructure-as-code ---------------- */
+  "cloud-posture-audit": {
+    phase: "surface",
+    goal: "Multi-cloud security posture and compliance sweep",
+    tools: [
+      T("prowler", "prowler {provider} --output-dir {out}/prowler --log-level WARN", { pip: "prowler" }, "scoutsuite"),
+      T("scoutsuite", "scout suite {provider} --report-dir {out}/scout", { pip: "scoutsuite" }, "prowler"),
+      T("cloudsploit", "cloudsploit --config {out}/config.json --report-dir {out}/cloudsploit", { npm: "cloudsploit" }, "prowler"),
+      T("cloudmapper", "cloudmapper account_id --config {out}/config.json", { pip: "cloudmapper" }, "aws sts get-caller-identity"),
+      T("checkov", "checkov -d {path} --framework all --output json > {out}/checkov.json", { pip: "checkov" }, "terrascan"),
+      T("terrascan", "terrascan scan -t all -r -o {out}/terrascan.json {path}", { go: "github.com/tenable/terrascan/cmd/terrascan@latest" }, "checkov"),
+    ],
+    notes: [
+      "creds first: AWS_SESSION_TOKEN / AZURE_CLIENT_SECRET / GOOGLE_APPLICATION_CREDENTIALS must be set or the audit is uniformative.",
+      "A CIS FAIL is a finding; a CIS INFO is a note.",
+      "Record the account/subscription/project id you actually audited - a different one makes the report unusable.",
+    ],
+  },
+  "cloud-aws-audit": {
+    phase: "surface",
+    goal: "AWS-only posture assessment",
+    tools: [
+      T("aws", "aws sts get-caller-identity --output json > {out}/aws_identity.json", { pip: "awscli" }, "prowler aws"),
+      T("prowler", "prowler aws --compliance cis_2.0 --output-dir {out}/prowler --log-level WARN", { pip: "prowler" }, "scoutsuite"),
+      T("aws", "aws iam get-account-summary --output json > {out}/iam_summary.json && aws s3 ls --no-sign-request > {out}/buckets.txt", {}, "s3scanner"),
+      T("cloud_enum", "cloud_enum -k {org} -l {out}/cloud_enum.txt", { go: "github.com/initstring/cloud_enum@latest" }, "s3scanner"),
+    ],
+    notes: [
+      "aws sts get-caller-identity is step 0 - it proves whose identity you are acting with. Never guess the account.",
+      "IAM privesc path: get-account-summary -> list-users -> who has an access key -> what they are allowed to do.",
+    ],
+  },
+  "cloud-azure-audit": {
+    phase: "surface",
+    goal: "Azure posture assessment",
+    tools: [
+      T("az", "az account show --output json > {out}/az_identity.json", { apt: "azure-cli" }, "az rest"),
+      T("prowler", "prowler azure --az-cli-auth --az-subscription {sub} --output-dir {out}/prowler_az --log-level WARN", { pip: "prowler" }, "scout suite azure"),
+      T("scoutsuite", "scout suite azure --cli --report-dir {out}/scout_az", { pip: "scoutsuite" }, "prowler"),
+      T("az", "az role assignment list --all --output json > {out}/az_roles.json", {}, "az role assignment"),
+    ],
+    notes: ["Azure Cloud Shell and managed identities are the fastest route to creds from inside a pod."],
+  },
+  "cloud-gcp-audit": {
+    phase: "surface",
+    goal: "GCP posture assessment",
+    tools: [
+      T("gcloud", "gcloud config get-value project --format=json > {out}/gcp_identity.json", { apt: "google-cloud-cli" }, "prowler gcp"),
+      T("prowler", "prowler gcp --gcp-env --output-dir {out}/prowler_gcp --log-level WARN", { pip: "prowler" }, "scout suite gcp"),
+      T("scoutsuite", "scout suite gcp --cli --report-dir {out}/scout_gcp", { pip: "scoutsuite" }, "prowler"),
+    ],
+    notes: ["Workload identity bindings and the metadata endpoint (metadata.google.internal) are the two highest-yield paths."],
+  },
+  "iam-privesc": {
+    phase: "exploit",
+    goal: "Cloud IAM privilege escalation discovery and proof",
+    tools: [
+      T("aws", "aws iam list-users --output json > {out}/iam_users.json && aws iam list-roles --output json > {out}/iam_roles.json", { pip: "awscli" }, "prowler"),
+      T("cloudmapper", "cloudmapper enum --config {out}/config.json && cloudmapper find_privesc --config {out}/config.json", { pip: "cloudmapper" }, "prowler + manual policy review"),
+      T("pacu", "python3 pacu.py --module iam__privesc_scan --output-dir {out}/pacu", { git: "https://github.com/PacuTools/Pacu" }, "cloudmapper find_privesc"),
+      T("aws", "aws sts assume-role --role-arn {role} --role-session-name raptor-probe --output json > {out}/assume_role.json", {}, "iam__privesc_scan"),
+      T("az", "az role assignment create --assignee {user} --role 'Contributor' --output json > {out}/az_privesc.json", {}, "manual az rbac"),
+    ],
+    notes: [
+      "iam__privesc_scan is the highest-yield module - run it, then enumerate the permission it found.",
+      "Prove the privesc with one command that shows what could NOT be done before the escalation.",
+      "For assume-role: verify the role's trust policy allows your principal, not just that the role exists.",
+    ],
+  },
+  "cloud-secrets": {
+    phase: "exploit",
+    goal: "Cloud secrets and credential material exposure",
+    tools: [
+      T("aws", "aws secretsmanager list-secret-values --secret-id '*' --output json > {out}/secrets.json", { pip: "awscli" }, "aws secretsmanager list-secrets"),
+      T("aws", "aws s3 ls s3://{bucket}/ --no-sign-request > {out}/bucket_listing.txt && aws s3 cp s3://{bucket}/{key} - > {out}/bucket_file.txt", {}, "curl -s https://{bucket}.s3.amazonaws.com/"),
+      T("gcloud", "gcloud secrets list --format=json > {out}/gcp_secrets.json", { apt: "google-cloud-cli" }, "gcloud secrets describe"),
+      T("az", "az keyvault secret list --vault-name {vault} --output json > {out}/az_secrets.json", { apt: "azure-cli" }, "az keyvault"),
+      T("trufflehog", "trufflehog filesystem {path} --no-update --only-verified", { go: "github.com/trufflesecurity/trufflehog@latest" }, "detect-secrets"),
+    ],
+    notes: [
+      "Keys and tokens go into the operator's secret store, never into a report body. Report locations, not values.",
+      "Prove a secret is real by testing it with one clearly-scoped read (aws sts, gcloud auth token, key decrypt).",
+    ],
+  },
+  "imds-credential-hunt": {
+    phase: "exploit",
+    goal: "Metadata endpoint credential extraction via SSRF (IMDS chain)",
+    tools: [
+      T("curl", "curl -s -H 'Metadata: true' 'http://169.254.169.254/latest/meta-data/'", { apt: "curl" }, "python3 -c urllib"),
+      T("curl", "curl -s -H 'Metadata: true' 'http://169.254.169.254/latest/meta-data/iam/security-credentials/'", {}, "IMDSv2 PUT token first"),
+      T("curl", "curl -s -X PUT -H 'Metadata: true' 'http://169.254.169.254/latest/api/token' -H 'X-aws-ec2-metadata-token-ttl-seconds: 300'", {}, "IMDSv2 token fetch"),
+      T("gcloud", "curl -s 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' -H 'Metadata-Flavor: Google'", { pip: "google-auth" }, "gcloud auth"),
+    ],
+    notes: [
+      "IMDSv1 needs no token; IMDSv2 requires the PUT. Probe both and note which version you got.",
+      "Once you have creds, get-caller-identity with them is the proof you are on a different principal.",
+      "IMDS SSRF is the peak reveal for a web-only foothold - assume-role afterward is a full cloud foothold.",
+    ],
+  },
+  "iac-scan": {
+    phase: "surface",
+    goal: "IaC policy evaluation and misconfiguration discovery",
+    tools: [
+      T("checkov", "checkov -d {path} --framework all --output json > {out}/checkov.json", { pip: "checkov" }, "terrascan"),
+      T("terrascan", "terrascan scan -t all -i dockerfile -r -o {out}/terrascan.json {path}", { go: "github.com/tenable/terrascan/cmd/terrascan@latest" }, "checkov"),
+      T("conftest", "conftest test --policy {out}/policies '{path}/terraform/*.tf'", { go: "github.com/open-policy-agent/conftest@latest" }, "opa eval"),
+      T("opa", "opa eval -d {out}/policies/policy.rego -i {out}/input.json 'data.main'", { go: "github.com/open-policy-agent/opa@latest" }, "conftest"),
+      T("retire", "retire --path {path} --outputpath {out}/retire.json --outputformat json", { go: "github.com/retiresec/retire@latest" }, "grype dir"),
+      T("osv-scanner", "osv-scanner --recursive {path} --format json > {out}/osv.json", { go: "github.com/google/osv-scanner/cmd/osv-scanner@latest" }, "grype dir"),
+    ],
+    notes: [
+      "checkov/terrascan emit noise - report only the IDs the target actually has, with the file+line that triggered them.",
+      "A fix is real only when the diff makes the finding disappear - re-run the scan after the patch to prove it.",
+    ],
+  },
+  "container-vuln-scan": {
+    phase: "surface",
+    goal: "Container image CVE, secret and config scanning",
+    tools: [
+      T("trivy", "trivy image --format json --output {out}/trivy.json {image} || trivy fs --format json --output {out}/trivy.json {path}", { go: "github.com/aquasecurity/trivy/cmd/trivy@latest" }, "grype"),
+      T("grype", "grype {image} -o json > {out}/grype.json", { go: "github.com/anchore/grype@latest" }, "trivy"),
+      T("syft", "syft {image} -o spdx-json > {out}/sbom.json", { go: "github.com/anchore/syft/cmd/syft@latest" }, "docker save"),
+      T("dockle", "dockle --format json {image} > {out}/dockle.json", { go: "github.com/goodoctor/dockle/cmd/dockle@latest" }, "trivy config"),
+      T("dive", "dive {image} --json {out}/dive.json", { go: "github.com/wagoodman/dive/cmd/dive@latest" }, "docker history"),
+      T("find", "find {path} -type f ( -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name 'id_rsa*' ) -print", { apt: "findutils" }, "trivy secret"),
+    ],
+    notes: [
+      "Start with --severity critical,high and only report what has a fix available.",
+      "dive finds secrets in image layers - a .pem in layer 3 is a finding even if no CVE exists.",
+    ],
+  },
+  "docker-audit": {
+    phase: "surface",
+    goal: "Docker host CIS benchmark assessment",
+    tools: [
+      T("docker-bench-security", "bash {path}/docker-bench-security.sh -l {out}/docker_bench.log", { git: "https://github.com/docker/docker-bench-security" }, "docker inspect + manual checks"),
+      T("docker", "docker ps -a --format 'table {{.ID}}\t{{.Image}}\t{{.Status}}\t{{.Command}}' > {out}/docker_ps.txt", { apt: "docker.io" }, "ps + /proc"),
+      T("docker", "docker inspect 'docker ps -q' > {out}/docker_inspect.json", { apt: "docker.io" }, "docker-bench-security"),
+      T("trivy", "trivy image --scanners vuln,secret,config {image}", { go: "github.com/aquasecurity/trivy/cmd/trivy@latest" }, "grype"),
+      T("syft", "syft {image} -o spdx-json > {out}/sbom.json", { go: "github.com/anchore/syft/cmd/syft@latest" }, "docker save"),
+    ],
+    notes: [
+      "Run docker-bench-security FIRST - it tells you where to dig inside docker inspect.",
+      "Every WARN that appears on the container but not on the host is real - report it.",
+    ],
+  },
+  "runtime-detection": {
+    phase: "surface",
+    goal: "Runtime security monitoring posture and rule quality",
+    tools: [
+      T("falco", "falco -c /etc/falco/falco.yml -e 'event.type=mkdir and fd.name starts /etc' > {out}/falco.log", { release_gh: { repo: "falcosecurity/falco", asset_regex: "falco-.*-x86_64.tar.gz", extract: "usr/bin/falco", dest: "/usr/local/bin/falco" } }, "falcoctl rules check"),
+      T("falcoctl", "falcoctl artifact list && falcoctl rules add falcosecurity/rules", { go: "github.com/falcosecurity/falcoctl/cmd/falcoctl@latest" }, "hand-edit rules"),
+      T("python3", "python3 {out}/gen_falco_rule.py --event {event} > {out}/custom_rule.yaml", { apt: "python3" }, "write the rule by hand"),
+      T("docker", "docker exec {container} cat /proc/1/status > {out}/proc1.txt", { apt: "docker.io" }, "auditd"),
+    ],
+    notes: [
+      "Prove coverage by running one known trigger in a sandbox container and confirming the rule fired.",
+      "A rule that fires on a benign action is a false-positive defect, not a coverage win - report it as one.",
+      "Falco needs the kernel event source. If it is absent, that is a real coverage gap - record it as a finding.",
+    ],
+  },
+  "k8s-hunt": {
+    phase: "surface",
+    goal: "Kubernetes attack-surface discovery with kube-hunter",
+    tools: [
+      T("kube-hunter", "kube-hunter --remote {k8s_host} --report-json {out}/kube_hunter.json", { pip: "kube-hunter" }, "nmap on the API server"),
+      T("kubectl", "kubectl get pods -A --no-headers | head -30 > {out}/k8s_pods.txt", { apt: "kubernetes-client" }, "curl the API server"),
+      T("kube-bench", "kube-bench run --outputfile {out}/kube_bench.json", { go: "github.com/aquasecurity/kube-bench/cmd/kube-bench@latest" }, "CIS checklist manually"),
+      T("trivy", "trivy k8s --report summary {k8s_host}", { go: "github.com/aquasecurity/trivy/cmd/trivy@latest" }, "kube-bench"),
+    ],
+    notes: [
+      "kube-hunter remote mode is passive-first; add --active only when the operator authorised it.",
+      "Report every FAIL with its CIS control id. INFO items are notes, not findings.",
+    ],
+  },
+  "k8s-cis-audit": {
+    phase: "surface",
+    goal: "Kubernetes CIS benchmark compliance check",
+    tools: [
+      T("kube-bench", "kube-bench run --json --outputfile {out}/kube_bench.json", { go: "github.com/aquasecurity/kube-bench/cmd/kube-bench@latest" }, "CIS checklist manually"),
+      T("kubescape", "kubescape scan framework nsa --output {out}/kubescape.json", { go: "github.com/kubescape/kubescape/cmd/kubescape@latest" }, "kube-bench"),
+      T("kubectl", "kubectl version --short && kubectl get ns && kubectl get sa,svc -A", { apt: "kubernetes-client" }, "curl the API server"),
+    ],
+    notes: ["The big three CIS gaps: anonymous access on 6443, no pod security standards, unauthenticated health endpoints."],
+  },
+  "k8s-manifest-audit": {
+    phase: "surface",
+    goal: "Kubernetes manifest security analysis",
+    tools: [
+      T("kubesec", "kubesec scan {path}/manifest.yaml > {out}/kubesec.json", { go: "github.com/controlplaneio/kubesec@latest" }, "kube-linter"),
+      T("kube-linter", "kube-linter lint {path} --format json > {out}/kube_linter.json", { go: "github.com/stackrox/kube-linter/cmd/kube-linter@latest" }, "kubescape"),
+      T("kubescape", "kubescape scan {path} --output {out}/kubescape.json", { go: "github.com/kubescape/kubescape/cmd/kubescape@latest" }, "kube-linter"),
+      T("kubeconform", "kubeconform -strict -summary {path}/manifest.yaml", { go: "github.com/yannh/kubeconform/cmd/kubeconform@latest" }, "kubectl --dry-run"),
+    ],
+    notes: [
+      "A kubesec score under 30 (LOW) is a hard finding.",
+      "Report a fixed manifest as a patch and re-scan it to prove the finding is gone.",
+    ],
+  },
+  "k8s-rbac-enum": {
+    phase: "surface",
+    goal: "Kubernetes RBAC and cluster access enumeration",
+    tools: [
+      T("kubectl", "kubectl auth can-i --list -o json > {out}/can_i.json", { apt: "kubernetes-client" }, "curl the API server with the SA token"),
+      T("kubectl", "kubectl get secrets -A -o json > {out}/k8s_secrets.json", { apt: "kubernetes-client" }, "kubectl get sa,rolebindings -A"),
+      T("kubectl", "kubectl get sa,rolebindings -A -o json > {out}/rbac.json", { apt: "kubernetes-client" }, "kubectl auth can-i --list"),
+      T("kubectl", "kubectl exec {pod} -n {ns} -- cat /var/run/secrets/kubernetes.io/serviceaccount/token > {out}/sa_token.txt", { apt: "kubernetes-client" }, "kubectl cp"),
+      T("opa", "opa eval -d {out}/rbac.rego -i {out}/rbac.json 'data.main'", { go: "github.com/open-policy-agent/opa@latest" }, "conftest"),
+    ],
+    notes: [
+      "A serviceaccount token from any pod is an identity. Enumerate what it can do BEFORE anything else.",
+      "Report the shortest path to cluster-admin, not every path.",
+    ],
+  },
+  "k8s-escape": {
+    phase: "exploit",
+    goal: "Pod to node to cluster escape discovery and read-only proof",
+    tools: [
+      T("kubectl", "kubectl exec {pod} -n {ns} -- cat /proc/1/status | head -5 > {out}/proc1.txt", { apt: "kubernetes-client" }, "docker exec"),
+      T("kubectl", "kubectl exec {pod} -n {ns} -- ls -la /var/run/docker.sock /run/containerd/containerd.sock /host > {out}/socks.txt", { apt: "kubernetes-client" }, "hostPath checks"),
+      T("kubectl", "kubectl exec {pod} -n {ns} -- cat /proc/self/status | grep CapEff > {out}/caps.txt", { apt: "kubernetes-client" }, "capsh --decode"),
+      T("kubectl", "kubectl get pods -A -o yaml | grep -nE 'privileged: true|hostPath|docker.sock' | head -20 > {out}/priv_check.txt", { apt: "kubernetes-client" }, "kubectl get -o json"),
+      T("kubectl", "kubectl auth can-i --list --as system:serviceaccount:{ns}:{sa} > {out}/sa_perms.txt", { apt: "kubernetes-client" }, "kubectl auth can-i --list"),
+    ],
+    notes: [
+      "Five escape roads: hostPath mounts, privileged containers, docker.socket, CAP_SYS_ADMIN, SA impersonation.",
+      "Prove an escape with one read-only command that could not run before the escalation, and state what it proved.",
+      "Never delete or restart a workload to make a point. Read-only proof is always enough.",
+    ],
+  },
+  "helm-audit": {
+    phase: "surface",
+    goal: "Helm chart and release assessment",
+    tools: [
+      T("helm", "helm list --all-namespaces --output json > {out}/helm_list.json", { go: "helm.sh/helm/v3/cmd/helm@latest" }, "read chart YAML"),
+      T("helm", "helm get all {release} -n {ns} > {out}/helm_all.yaml", { go: "helm.sh/helm/v3/cmd/helm@latest" }, "helm template"),
+      T("helm", "helm template --validate {chart} > {out}/rendered.yaml && kubesec scan {out}/rendered.yaml", { go: "helm.sh/helm/v3/cmd/helm@latest" }, "kube-linter"),
+    ],
+    notes: ["helm get all is the source of truth for image tags, pull secrets and hostPath in the landing zone."],
+  },
+  "istio-audit": {
+    phase: "surface",
+    goal: "Istio service mesh configuration analysis",
+    tools: [
+      T("istioctl", "istioctl version && istioctl x describe pod {pod}", { go: "istio.io/istio/cmd/istioctl@latest" }, "read mesh config CRDs"),
+      T("istioctl", "istioctl x check-injection --mesh-config {out}/mesh.yaml", { go: "istio.io/istio/cmd/istioctl@latest" }, "istioctl probe"),
+      T("istioctl", "istioctl proxy-config all {pod} -n {ns} -o json > {out}/sidecar.json", { go: "istio.io/istio/cmd/istioctl@latest" }, "dump the configmap"),
+    ],
+    notes: ["PeerAuthentication absent = mTLS off - a real finding for east-west traffic."],
+  },
+
+  /* ---------------- forensics ---------------- */
+  "forensics-disk": {
+    phase: "forensics",
+    goal: "Filesystem forensics: partition map, file carving, timeline",
+    tools: [
+      T("sleuthkit", "mmls {img} > {out}/mmls.txt && fls -r -p {img} > {out}/fls.txt", { apt: "sleuthkit" }, "photorec"),
+      T("photorec", "photorec /d {out}/carve /rec {img} > /dev/null", { apt: "testdisk" }, "scalpel"),
+      T("foremost", "foremost -i {img} -o {out}/foremost -q", { apt: "foremost" }, "scalpel"),
+      T("scalpel", "scalpel -c /etc/scalpel/scalpel.conf -o {out}/scalpel {img}", { apt: "scalpel" }, "foremost"),
+      T("bulk-extractor", "bulk_extractor -o {out}/bulk {img}", { apt: "bulk-extractor" }, "foremost"),
+      T("testdisk", "testdisk /dev/{disk} -d -R > {out}/testdisk.log", { apt: "testdisk" }, "mmls + fls"),
+      T("sha256sum", "sha256sum {img} > {out}/hash.txt && stat {img} > {out}/stat.txt", { apt: "coreutils" }, "stat"),
+    ],
+    notes: [
+      "Work on a COPY of the disk, never the original. Hash both and note any mismatch.",
+      "fls output is the map - grep it first, then icat/sleuthkit block the exact inode you care about.",
+      "Every carved file goes into its own directory with a hash. A file without a hash is not evidence.",
+    ],
+  },
+  "forensics-memory": {
+    phase: "forensics",
+    goal: "Memory forensics with Volatility 2 and Volatility 3",
+    tools: [
+      T("vol3", "python3 -m volatility3.cli.pslist -f {dump} > {out}/pslist.txt", { pip: "volatility3" }, "volatility"),
+      T("vol3", "python3 -m volatility3.cli.netstat -f {dump} > {out}/netstat.txt", { pip: "volatility3" }, "volatility"),
+      T("vol3", "python3 -m volatility3.cli.userassist -f {dump} > {out}/exec_chain.txt", { pip: "volatility3" }, "volatility"),
+      T("volatility", "volatility -f {dump} imageinfo > {out}/imageinfo.txt", { apt: "volatility" }, "vol3"),
+      T("volatility", "volatility -f {dump} pslist > {out}/pslist2.txt", { apt: "volatility" }, "vol3"),
+      T("strings", "strings -el {dump} | grep -iE 'password|https?://|cookie|token' | head -200 > {out}/mem_strings.txt", { apt: "binutils" }, "bulk-extractor"),
+    ],
+    notes: [
+      "vol3 uses dotted plugin paths (python -m volatility3.cli.<plugin>); vol2 uses snake_case plugin names. Match the version you run.",
+      "A process with no file backing or executable memory outside the image is suspicious - malfind is the first check.",
+      "Hollowing may have no searchable strings - use malfind, not strings, to find it.",
+    ],
+  },
+  "sleuthkit-analysis": {
+    phase: "forensics",
+    goal: "Sleuth Kit inode analysis and deleted file recovery",
+    tools: [
+      T("sleuthkit", "fls -r -p {img} > {out}/files.txt && icat {img} {inode} > {out}/recovered.bin", { apt: "sleuthkit" }, "photorec"),
+      T("sleuthkit", "ils -e {img} > {out}/inodes.txt && ils {img} > {out}/deleted.txt", { apt: "sleuthkit" }, "fls"),
+      T("sleuthkit", "img_stat {img} && fls -m {mount} -r {img} > {out}/mactime.csv", { apt: "sleuthkit" }, "autopsy"),
+    ],
+    notes: ["mmls + ils reveal unallocated data - deleted files still on disk are the highest-value find."],
+  },
+  "autopsy-timeline": {
+    phase: "forensics",
+    goal: "Autopsy-driven analysis and timeline construction",
+    tools: [
+      T("autopsy", "autopsy -h > {out}/autopsy_help.txt 2>&1", { apt: "autopsy" }, "sleuthkit"),
+      T("sleuthkit", "fls -m {mount} -r {img} > {out}/mactime.csv", { apt: "sleuthkit" }, "autopsy"),
+      T("python3", "python3 {out}/gen_timeline.py --mactime {out}/mactime.csv --out {out}/timeline.md", { apt: "python3" }, "grep + sort"),
+    ],
+    notes: ["A timeline shows WHEN an attacker interacted, not just what exists - it is the risk-reduction deliverable."],
+  },
+  "stego": {
+    phase: "forensics",
+    goal: "Hidden data in images",
+    tools: [
+      T("steghide", "steghide extract -sf {file} -p {password} -xf {out}/extracted.bin || steghide info {file}", { apt: "steghide" }, "binwalk"),
+      T("outguess", "outguess -r {file} {out}/outguess.bin", { apt: "outguess" }, "steghide"),
+      T("zsteg", "zsteg {file} > {out}/zsteg.txt", { gem: "zsteg" }, "binwalk"),
+      T("stegsolve", "stegsolve {file}", { release_gh: { repo: "StegoSuite/stegsolve", asset_regex: "stegsolve.*.deb", install_cmd: "dpkg -i" } }, "python3 PIL bit-plane view"),
+      T("binwalk", "binwalk -e -C {out}/binwalk {file}", { pip: "binwalk" }, "unblob"),
+      T("exiftool", "exiftool -all {file} > {out}/exif.txt", { apt: "libimage-exiftool-perl" }, "strings"),
+      T("python3", "python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' < {file}", { apt: "python3" }, "sha256sum"),
+    ],
+    notes: [
+      "Try empty + common passwords first: password, admin, root, 123456, cyberchef, the flag format if known.",
+      "A hit is confirmation only when the extracted bytes decode to something - check it before calling it a finding.",
+      "stegsolve's LSB bit-plane view looks noisy when data is hidden - it is the fastest visual check.",
+    ],
+  },
+  "metadata-audit": {
+    phase: "forensics",
+    goal: "Document and image metadata review",
+    tools: [
+      T("exiftool", "exiftool -a -u -G1 {file} > {out}/meta.txt", { apt: "libimage-exiftool-perl" }, "pdftotext"),
+      T("exiftool", "exiftool -gps:all -a -u -b {file} > {out}/gps.txt", { apt: "libimage-exiftool-perl" }, "exiftool"),
+      T("python3", "python3 -c 'import zipfile,sys; print(zipfile.ZipFile(sys.argv[1]).read(\"docProps/core.xml\").decode())' {file}", { apt: "python3" }, "exiftool"),
+      T("pdftotext", "pdftotext {file} {out}/text.txt", { apt: "poppler-utils" }, "strings"),
+    ],
+    notes: [".docx/.xlsx are zip containers - unzip and read docProps/core.xml for real authorship and edit history."],
+  },
+
+  /* ---------------- crypto & hashes ---------------- */
+  "hash-identify": {
+    phase: "surface",
+    goal: "Hash type identification with confidence scoring",
+    tools: [
+      T("hashID", "hashID {hash}", { go: "github.com/psypanda/hashID@latest" }, "hash_identify"),
+      T("hash_identify", "hash_identify --data '{hash}' --json", { local: "hash_identify.py" }, "hashID"),
+      T("python3", "python3 -c 'import sys; s=sys.argv[1]; print(len(s), sum(c.isalnum() for c in s))' '{hash}'", { apt: "python3" }, "hash_identify"),
+    ],
+    notes: [
+      "Identify FIRST. Wrong mode = wasted GPU hours and a wrong answer.",
+      "Two tools agreeing beats one. If hashID and hash_identify disagree, the explanation wins.",
+      "JSON output feeds straight into raptor_finding - keep the evidence with the mode.",
+    ],
+  },
+  "hash-crack": {
+    phase: "exploit",
+    goal: "Password recovery for a candidate hash",
+    tools: [
+      T("hashcat", "hashcat -a 0 -m {mode} '{hash}' {out}/words.txt --username -o {out}/cracked.txt", { apt: "hashcat" }, "john"),
+      T("john", "john --format={john_format} {out}/hash.txt --wordlist={out}/words.txt", { apt: "john" }, "hashcat"),
+      T("john", "john --wordlist={out}/words.txt --rules=best64 {out}/hash.txt", { apt: "john" }, "hashcat with rules"),
+      T("python3", "python3 {out}/bruteforce.py --chars 'lower+digits' --max 6 > {out}/candidates.txt", { apt: "python3" }, "crunch"),
+    ],
+    notes: [
+      "Always show the plaintext with the hash that matched it. A match with no plaintext output is unproven.",
+      "For salted formats target ONE representative hash, not the whole dump.",
+      "No crack after 15 min is a valid result - the finding is then 'hash does not expose a weak password'.",
+    ],
+  },
+  "cipher-analysis": {
+    phase: "exploit",
+    goal: "Identify a classic cipher or encoding and decode it",
+    tools: [
+      T("cipher_identify", "cipher_identify --data '{blob}' --json", { local: "cipher_identify.py" }, "python3 base64"),
+      T("freq_analysis", "freq_analysis --text '{blob}' --json", { local: "freq_analysis.py" }, "cipher_identify"),
+      T("cyberchef_ops", "cyberchef_ops --op base64-decode --data '{blob}'", { local: "cyberchef_ops.py" }, "openssl"),
+      T("python3", "python3 -c 'import base64,sys; print(base64.b64decode(sys.argv[1]))' '{blob}'", { apt: "python3" }, "cyberchef_ops"),
+    ],
+    notes: [
+      "Try the cheapest route first - if it decodes to printable ASCII in one hop, you are done.",
+      "Vigenere/substitution starts with freq_analysis, never with the spelling-out method.",
+    ],
+  },
+  "frequency-crack": {
+    phase: "exploit",
+    goal: "Break a monoalphabetic substitution with statistical analysis",
+    tools: [
+      T("freq_analysis", "freq_analysis --text '{ciphertext}' --json", { local: "freq_analysis.py" }, "python3 collections"),
+      T("cyberchef_ops", "cyberchef_ops --op rot13 --data '{ciphertext}'", { local: "cyberchef_ops.py" }, "python3 str.translate"),
+      T("python3", "python3 {out}/break_subst.py --cipher '{ciphertext}' --out {out}/break.json", { apt: "python3" }, "freq_analysis"),
+    ],
+    notes: ["Report the cracked plaintext IN FULL, with the frequency table that justified it."],
+  },
+  "rsa-analysis": {
+    phase: "exploit",
+    goal: "RSA weakness analysis and plaintext recovery",
+    tools: [
+      T("rsa_tool", "rsa_tool --n {n} --e {e} --c {c} --json", { local: "rsa_tool.py" }, "python3 sympy"),
+      T("rsa_tool", "rsa_tool --key {pem} --json", { local: "rsa_tool.py" }, "openssl rsa -text"),
+      T("factor_db", "factor_db --n {n}", { local: "factor_db.py" }, "openssl rsa -text"),
+      T("openssl", "openssl rsa -in {pem} -text -noout", { apt: "openssl" }, "python3 cryptography"),
+      T("python3", "python3 -c 'import math,sys; print(math.gcd(int(sys.argv[1]),int(sys.argv[2])))' {n1} {n2}", { apt: "python3" }, "rsa_tool --gcd-with"),
+    ],
+    notes: [
+      "Report the weakness, the math, AND the recovered plaintext wherever you have it.",
+      "A shared prime across two moduli means both are broken - report both.",
+      "Never report a factorization you did not compute. Pollard rho not converging is a result, not a failure.",
+    ],
+  },
+
+  /* ---------------- bug bounty + OSINT arsenal ---------------- */
+  "subsiege": {
+    phase: "recon",
+    goal: "Full subdomain pipeline: sources, resolution, HTTP triage",
+    tools: [
+      T("subfinder", "subfinder -d {target} -all -silent -o {out}/subs.txt", { go: "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest" }, "amass"),
+      T("amass", "amass enum -passive -d {target} -o {out}/amass.txt", { apt: "amass" }, "subfinder"),
+      T("dnsx", "dnsx -l {out}/all_subs.txt -silent -a -resp -o {out}/resolved.txt", { go: "github.com/projectdiscovery/dnsx/cmd/dnsx@latest" }, "dig +short A"),
+      T("httpx", "httpx -l {out}/resolved.txt -silent -status-code -title -tech-detect -o {out}/live.txt", { go: "github.com/projectdiscovery/httpx/cmd/httpx@latest" }, "curl -I"),
+      T("dnsenum", "dnsenum --no-whois {target} > {out}/dnsenum.txt", { apt: "dnsenum" }, "dig +noall +answer"),
+      T("fierce", "fierce --domain {target} > {out}/fierce.txt", { pip: "fierce" }, "dnsenum"),
+      T("theHarvester", "theHarvester -d {target} -b all -f {out}/harvester.html", { pip: "theHarvester" }, "amass"),
+      T("alterx", "alterx -l {out}/subs.txt -n 1500 | sort -u | dnsx -silent -a -o {out}/alterx_resolved.txt", { go: "github.com/projectdiscovery/alterx/cmd/alterx@latest" }, "puredns bruteforce"),
+    ],
+    notes: [
+      "Merge every source into all_subs.txt BEFORE resolving. One resolution pass, not one per source.",
+      "Report takeover-prone CNAMEs separately from resolved hosts - they are different actions.",
+    ],
+  },
+  "subdomain-takeover": {
+    phase: "recon",
+    goal: "Subdomain takeover discovery and confirmation",
+    tools: [
+      T("subjack", "subjack -w {out}/all_subs.txt -ssl -v -o {out}/takeover.txt", { go: "github.com/haccer/subjack@latest" }, "nuclei -tags takeover"),
+      T("subzy", "subzy run --targets {out}/all_subs.txt -o {out}/subzy.txt", { go: "github.com/PentestPad/subzy@latest" }, "subjack"),
+      T("nuclei", "nuclei -tags takeover -l {out}/resolved.txt -silent -o {out}/takeover_nuclei.txt", { go: "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest" }, "manual CNAME check"),
+      T("dig", "dig +short CNAME {sub}", { apt: "dnsutils" }, "dnsx -cname"),
+    ],
+    notes: [
+      "A subzy/subjack hit is a candidate. The finding is real only when the claim path is verifiable.",
+      "Never register a domain just to prove it - describe the claim path (service, expected response, control you would gain) and cite the stale service name.",
+    ],
+  },
+  "param-spider": {
+    phase: "surface",
+    goal: "Parameter discovery from archives and the live app",
+    tools: [
+      T("paramspider", "python3 {path}/main.py {target} > {out}/params.json", { git: "https://github.com/devanshbatham/ParamSpider" }, "arjun"),
+      T("arjun", "arjun -u {url} -m GET,POST -o {out}/arjun.json", { pip: "arjun" }, "x8"),
+      T("waymore", "waymore -i {target} -mode U -o {out}/waymore.txt", { go: "github.com/xnl-h4ck3r/waymore@latest" }, "gau"),
+      T("gau", "gau {target} > {out}/gau.txt", { go: "github.com/lc/gau/v2/cmd/gau@latest" }, "waybackurls"),
+      T("katana", "katana -u {url} -d 3 -jc -kf all -silent -o {out}/katana.txt", { go: "github.com/projectdiscovery/katana/cmd/katana@latest" }, "hakrawler"),
+      T("hakrawler", "echo {url} | hakrawler -d 2 -subs > {out}/hakrawler.txt", { go: "github.com/hakluke/hakrawler@latest" }, "katana"),
+    ],
+    notes: ["paramspider pulls from archives: it gives you old parameter keys, not live ones - cross-check against httpx."],
+  },
+  "secret-hunt-git": {
+    phase: "surface",
+    goal: "Secret hunting in source trees and git history",
+    tools: [
+      T("trufflehog", "trufflehog git https://github.com/{org}/{repo} --only-verified --json > {out}/trufflehog.json", { go: "github.com/trufflesecurity/trufflehog@latest" }, "gitleaks"),
+      T("detect-secrets", "detect-secrets scan {path} --json > {out}/detect_secrets.json", { pip: "detect-secrets" }, "trufflehog"),
+      T("gitleaks", "gitleaks git {repo} -v --redact", { go: "github.com/gitleaks/gitleaks@latest" }, "trufflehog"),
+      T("trufflehog", "trufflehog filesystem {path} --no-update", { go: "github.com/trufflesecurity/trufflehog@latest" }, "detect-secrets"),
+    ],
+    notes: [
+      "trufflehog --only-verified is the first pass; unverified hits only after you have the verified set.",
+      "Never paste a secret into a report body. Name the type, location, and an 8-character fingerprint.",
+      "A secret that fails auth is still a leak if it has historical meaning - say which it is.",
+    ],
+  },
+  "osint-platform": {
+    phase: "recon",
+    goal: "Public platform intelligence with the extended arsenal",
+    tools: [
+      T("theHarvester", "theHarvester -d {domain} -b all -f {out}/harvester.html", { pip: "theHarvester" }, "amass"),
+      T("social-analyzer", "social-analyzer --username '{handle}' --profile 'info' --type 'media+profile' > {out}/social.json", { git: "https://github.com/iojw/social-analyzer" }, "sherlock"),
+      T("recon-ng", "recon-ng -m twitter,linkedin,instagram -d {target}", { apt: "recon-ng" }, "theHarvester"),
+      T("spiderfoot", "spiderfoot --scan {target} --output json > {out}/sf.json", { pip: "spiderfoot" }, "theHarvester"),
+      T("maltego", "maltego-launcher --config {out}/mtg_spec.json", { url: "https://downloads.maltego.com/maltego-latest/MaltegoCE-linux.tar.gz", dest: "/opt/maltego", extract: true }, "recon-ng"),
+      T("shodan", "shodan search --fields ip_str,port,transport,org '{field}' --limit 50 > {out}/shodan.txt", { pip: "shodan" }, "censys"),
+      T("censys", "censys search --limit 50 '{field}' --write {out}/censys.json", { pip: "censys" }, "shodan"),
+      T("holehe", "holehe {email} --no-color -o {out}/holehe.txt", { pip: "holehe" }, "websearch"),
+      T("hibp", "hibp --breaches {email}", { local: "hibp_lookup.py" }, "websearch"),
+      T("pipl", "pipl --query {identifier}", { local: "pipl_lookup.py" }, "privdata people search"),
+    ],
+    notes: [
+      "shodan/censys/uncover have free tiers - say which tier you used when reporting.",
+      "holehe is a per-provider registration probe, not an account takeover.",
+      "pipl needs a key. No key configured is a real result - do not fabricate.",
+    ],
+  },
+  "shodan-recon": {
+    phase: "recon",
+    goal: "Internet-connected asset discovery with shodan",
+    tools: [
+      T("shodan", "shodan search --limit 50 --fields ip_str,port,transport,org '{field}' > {out}/shodan.txt", { pip: "shodan" }, "uncover"),
+      T("shodan", "shodan host {ip}", { pip: "shodan" }, "censys"),
+      T("uncover", "uncover -q '{query}' -o {out}/uncover.txt", { go: "github.com/projectdiscovery/uncover@latest" }, "shodan"),
+      T("asnmap", "asnmap {org} > {out}/asn.txt", { go: "github.com/projectdiscovery/asnmap/cmd/asnmap@latest" }, "bgpview"),
+      T("mapcidr", "mapcidr -cidr {cidr} -agg > {out}/cidr.txt", { go: "github.com/projectdiscovery/mapcidr/cmd/mapcidr@latest" }, "bgpview"),
+      T("cdncheck", "cdncheck -i {host}", { go: "github.com/projectdiscovery/cdncheck/cmd/cdncheck@latest" }, "wafw00f"),
+    ],
+    notes: ["Report shodan results as 'asset seen at <date>' with the raw response you actually received."],
+  },
+  "censys-recon": {
+    phase: "recon",
+    goal: "Certificate-surface collection with censys",
+    tools: [
+      T("censys", "censys search --limit 50 'services.tls.certificates.leaf.subject: {host}' --output json > {out}/censys.json", { pip: "censys" }, "shodan"),
+      T("censys", "censys search --limit 50 'dns.names: {host}' --output json > {out}/censys_dns.json", { pip: "censys" }, "certspotter"),
+      T("curl", "curl -s 'https://crt.sh/?q=%25.{host}&output=json'", { apt: "curl" }, "censys"),
+      T("uncover", "uncover -q '{host}' -r censys -o {out}/uncover.txt", { go: "github.com/projectdiscovery/uncover@latest" }, "censys"),
+    ],
+    notes: ["censys cert search exposes SAN hosts no subdomain tool finds. Keep it one more merge source."],
+  },
+  "aquatone-survey": {
+    phase: "surface",
+    goal: "Visual inventory of every live host with aquatone",
+    tools: [
+      T("aquatone", "aquatone -out {out}/aquatone -n 8 -t 10m < {out}/live.txt", { git: "https://github.com/fireeye/aquatone" }, "gospider + headless chrome"),
+      T("gospider", "gospider -S {out}/live.txt -q -s -d 3 -o {out}/gospider", { go: "github.com/jaeles-project/gospider@latest" }, "katana"),
+    ],
+    notes: ["Aquatone's HTML report is the deliverable you replay to the operator - attach screenshots, not markup."],
+  },
+
+  /* ---------------- exploit dev & fuzzing ---------------- */
+  "fuzz-binary": {
+    phase: "exploit",
+    goal: "Coverage-guided fuzzing campaign on a binary or parser",
+    tools: [
+      T("afl-fuzz", "afl-fuzz -i {in_dir} -o {out_dir} -- {bin} @@ > {out}/afl.log", { apt: "afl-fuzz" }, "honggfuzz"),
+      T("honggfuzz", "honggfuzz -i {in_dir} --output {out_dir} -- {bin} > {out}/honggfuzz.log", { apt: "honggfuzz" }, "afl-fuzz"),
+      T("angr", "python3 {out}/angr_harness.py --target {bin} --find '{path}' > {out}/angr.json", { pip: "angr" }, "manual symbolic walk"),
+      T("python3", "python3 {out}/fuzz_harness.py --target {bin} --out {out}/crashes.txt", { apt: "python3" }, "afl-fuzz"),
+    ],
+    notes: [
+      "Start AFL with a seeded corpus - a random corpus produces noise that proves nothing.",
+      "Every crash is a candidate until you reproduce it 3 times with the same input.",
+      "For protocol fuzzers, seed with a real capture - that gives real structure to fuzz.",
+    ],
+  },
+  "symbolic-exec": {
+    phase: "exploit",
+    goal: "Symbolic execution for constraint solving",
+    tools: [
+      T("angr", "python3 {out}/sym_exec.py --binary {bin} --find '{path}' > {out}/angr.json", { pip: "angr" }, "pwnlib symbolic walk"),
+      T("python3", "python3 {out}/sym_exec2.py --binary {bin} > {out}/angr2.json", { pip: "angr" }, "angr"),
+    ],
+    notes: [
+      "angr needs explicit find/avoid paths - without both it is a loop generator, not an exploit tool.",
+      "angr returns the constraint set, not a payload. Convert it to an input string explicitly.",
+    ],
+  },
 }
 
 const TOOL_SPECS: Record<string, Install> = {
@@ -1050,12 +1625,46 @@ const TOOL_SPECS: Record<string, Install> = {
   dig: { apt: "dnsutils" },
 }
 
-function installCommand(spec: Install): string | null {
+/* -------- extended toolchain registry (~/.raptor/tool-registry.json) --------
+ * The registry is the single source of truth for the newer tool families
+ * (cloud/k8s/container/forensics/crypto/osint-bugbounty/symbolic/fuzzing).
+ * It is merged into TOOL_SPECS so raptor_doctor, raptor_route and
+ * raptor_kali all see every registered tool without a code change.
+ * ------------------------------------------------------------------------- */
+type RegistryEntry = { bin: string; cat: string; desc: string; install?: Install; alt?: string }
+let EXTENDED_TOOLS: RegistryEntry[] = []
+try {
+  const reg = readJSON(join(BASE, "tool-registry.json"), null) as Json
+  if (reg && Array.isArray(reg.tools)) {
+    EXTENDED_TOOLS = reg.tools as RegistryEntry[]
+    for (const t of EXTENDED_TOOLS) {
+      if (t && t.bin) TOOL_SPECS[t.bin] = t.install || {}
+    }
+  }
+} catch {}
+
+function registryEntry(bin: string): RegistryEntry | null {
+  return EXTENDED_TOOLS.find((t) => t.bin === bin) || null
+}
+
+function installCommand(spec: Install, bin?: string): string | null {
   if (spec.go) return `go install ${spec.go}`
-  if (spec.pip) return `pip install --quiet ${spec.pip}`
+  if (spec.pip) return `pip install --quiet --break-system-packages ${spec.pip}`
   if (spec.apt) return `apt-get install -y ${spec.apt}`
   if (spec.cargo) return `cargo install ${spec.cargo}`
-  if (spec.git) return `git clone --depth 1 ${spec.git}`
+  if (spec.git) return `git clone --depth 1 ${spec.git} ~/.raptor/tools/${bin || slug(spec.git || "tool")}`
+  if (spec.npm) return `npm install -g ${spec.npm}`
+  if (spec.gem) return `gem install --no-document ${spec.gem}`
+  if (spec.release_gh) {
+    const name = spec.release_gh.repo.split("/")[1] || bin || "tool"
+    return `bash ~/.raptor/install-tools.sh --only ${name}`
+  }
+  if (spec.url) return `curl -fsSL ${spec.url} -o ${spec.dest || `~/.raptor/tools/${bin || "tool"}`}`
+  if (spec.local) {
+    const path = spec.local.startsWith("/") ? spec.local : join(BASE, "tools", "local", spec.local)
+    if (existsSync(path)) return null // shipped locally, nothing to install
+    return `missing shipped artefact at ${path}`
+  }
   return null
 }
 
@@ -1106,6 +1715,14 @@ function kaliInventory(): KaliInv {
         }
       }
     }
+  }
+  for (const t of EXTENDED_TOOLS) {
+    if (!t || !t.bin || index[t.bin]) continue
+    const cat = t.cat || "extended"
+    const desc = t.desc || "extended toolchain tool"
+    ;(byCat[cat] ||= []).push(t.bin)
+    index[t.bin] = { cat, desc }
+    total++
   }
   kaliCache = { total, byCat, index, dirs }
   return kaliCache
@@ -1314,7 +1931,7 @@ function route(intent: string, target: string, vars: Json): Json {
       tool: t.bin,
       available,
       cmd: subst(t.cmd),
-      install: available ? null : spec ? installCommand(spec) : null,
+      install: available ? null : spec ? installCommand(spec, t.bin) : null,
       alternative: available ? null : t.alt || null,
     }
   })
@@ -1346,7 +1963,7 @@ function doctor(install: boolean): Json {
     total: entries.length,
     present: entries.length - missing.length,
     missing: missing.map((m) => m.tool),
-    install_plan: missing.map((m) => ({ tool: m.tool, install: installCommand(TOOL_SPECS[m.tool]) })),
+    install_plan: missing.map((m) => ({ tool: m.tool, install: installCommand(TOOL_SPECS[m.tool], m.tool) })),
   }
   if (existsSync(logPath)) {
     try {
@@ -1477,6 +2094,239 @@ function addFinding(dir: string, f: Json): Json {
 
 /* ------------------------------------------------------------------ report */
 
+/* ---------------------------------------------------------------- todos */
+
+function todosOf(dir: string): Json[] {
+  const st = loadState(dir)
+  return Array.isArray(st.todos) ? st.todos : []
+}
+
+function saveTodos(dir: string, list: Json[]) {
+  const st = loadState(dir)
+  st.todos = list
+  saveState(dir, st)
+}
+
+function todoMutate(
+  dir: string,
+  action: string,
+  opts: { id?: string; text?: string; status?: string; result?: string } = {},
+): Json {
+  const now = nowISO()
+  let list = todosOf(dir)
+  if (action === "clear") {
+    saveTodos(dir, [])
+    return { ok: true, cleared: list.length }
+  }
+  if (action === "add") {
+    const id = opts.id || `T${list.filter((t) => String(t.id || "").startsWith("T")).length + 1}-${Date.now() % 10000}`
+    const item = {
+      id,
+      text: opts.text || "",
+      status: "open",
+      created_at: now,
+      updated_at: now,
+      result: null,
+    }
+    list.push(item)
+    saveTodos(dir, list)
+    return { ok: true, todo: item }
+  }
+  const item = list.find((t) => t.id === opts.id)
+  if (!item) return { ok: false, error: `todo '${opts.id}' not found` }
+  if (["open", "doing", "done", "blocked", "dropped"].includes(opts.status || "")) item.status = opts.status
+  if (opts.text) item.text = opts.text
+  if (opts.result != null) item.result = opts.result
+  item.updated_at = now
+  saveTodos(dir, list)
+  return { ok: true, todo: item }
+}
+
+function todoBoard(dir: string): Json {
+  const list = todosOf(dir)
+  const by = (s: string) => list.filter((t) => t.status === s)
+  return {
+    ok: true,
+    open: by("open").length,
+    doing: by("doing").length,
+    done: by("done").length,
+    blocked: by("blocked").length,
+    items: list,
+    next_action: list.find((t) => t.status === "doing") || by("open")[0] || null,
+  }
+}
+
+/* ----------------------------------------------------------- kill switch */
+
+function stopFlagPath() {
+  return join(BASE, "STOP")
+}
+
+function stopRequested(): boolean {
+  const p = stopFlagPath()
+  if (!existsSync(p)) return false
+  try {
+    // auto-expire after 6h so one forgotten flag does not brick a future run
+    return Date.now() - statSync(p).mtimeMs < 6 * 3600_000
+  } catch {
+    return false
+  }
+}
+
+function requestStop(reason: string): Json {
+  ensureDir(BASE)
+  writeFileSync(stopFlagPath(), `${nowISO()} | ${reason}\n`, { mode: 0o600 })
+  let tmux: Json = { attempted: false }
+  if (which("tmux")) {
+    try {
+      const sessions = execFileSync("tmux", ["ls", "-F", "#S"], { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).split("\n").filter(Boolean)
+      const mine = sessions.filter((s) => s.startsWith("raptor-"))
+      const killed: string[] = []
+      for (const s of mine) {
+        try {
+          // politely interrupt, then die
+          execFileSync("tmux", ["send-keys", "-t", s, "C-c"], { stdio: ["ignore", "ignore", "ignore"] })
+          execFileSync("bash", ["-c", `sleep 0.3; tmux kill-session -t ${s}`])
+          killed.push(s)
+        } catch {}
+      }
+      tmux = { attempted: true, sessions_seen: sessions.length, killed }
+    } catch (e) {
+      tmux = { attempted: true, error: String(e) }
+    }
+  }
+  return { ok: true, stop_flag: stopFlagPath(), reason, tmux, note: "All raptor tmux sessions killed; STOP flag is live for 6h. Check it before any new long-running step." }
+}
+
+function clearStop(): Json {
+  try {
+    unlinkSync(stopFlagPath())
+    return { ok: true, cleared: stopFlagPath() }
+  } catch {
+    return { ok: true, cleared: `${stopFlagPath()} (was not set)` }
+  }
+}
+
+/* ------------------------------------------------------- tmux orchestrator */
+
+type PaneSpec = { window: string; cmd: string }
+
+function tmuxSessionName(target: string): string {
+  return `raptor-${slug(target) || "sess"}`
+}
+
+function tmux(...args: string[]): string {
+  return execFileSync("tmux", args, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim()
+}
+
+function tmuxSession(name: string): boolean {
+  try {
+    tmux("has-session", "-t", name)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function tmuxStart(name: string, workdir: string, panes: PaneSpec[]): Json {
+  if (!which("tmux")) return { ok: false, error: "tmux not installed (apt-get install -y tmux)" }
+  if (tmuxSession(name)) return { ok: true, session: name, existed: true, hint: `tmux attach -t ${name}` }
+  try {
+    tmux("new-session", "-d", "-s", name, "-c", workdir, "-n", panes[0].window)
+    // prepare the run log the `logs` window tails
+    ensureDir(workdir)
+    for (const p of panes.slice(1)) tmux("new-window", "-t", name, "-n", p.window, "-c", workdir)
+    for (const p of panes) tmux("send-keys", "-t", `${name}:${p.window}`, p.cmd, "Enter")
+    return { ok: true, session: name, windows: panes.map((p) => p.window), hint: `tmux attach -t ${name}` }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+}
+
+function tmuxDispatch(name: string, win: string, cmd: string): Json {
+  if (!tmuxSession(name)) return { ok: false, error: `session ${name} is not up (raptor_tmux action=start first)` }
+  try {
+    tmux("send-keys", "-t", `${name}:${win}`, cmd, "Enter")
+    return { ok: true, sent: cmd, window: win }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+}
+
+function tmuxCapture(name: string, win: string, lines: number): Json {
+  if (!tmuxSession(name)) return { ok: false, error: `session ${name} is not up` }
+  try {
+    const out = tmux("capture-pane", "-p", "-t", `${name}:${win}`, "-S", String(-lines))
+    return { ok: true, window: win, lines: out.split("\n").length, output: out }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+}
+
+function tmuxList(): Json {
+  if (!which("tmux")) return { ok: false, error: "tmux not installed" }
+  try {
+    const raw = tmux("ls")
+    const sessions = raw.split("\n").filter(Boolean).map((l) => {
+      const m = l.match(/^(raptor-[^:]+):/)
+      return { raw: l, is_raptor: !!m }
+    })
+    return { ok: true, sessions, raptor_sessions: sessions.filter((s) => s.is_raptor).map((s) => s.raw) }
+  } catch {
+    return { ok: true, sessions: [], raptor_sessions: [], note: "no tmux server running" }
+  }
+}
+
+function tmuxStop(name: string): Json {
+  if (!which("tmux")) return { ok: false, error: "tmux not installed" }
+  const targets = name === "*" ? tmuxList().raptor_sessions || [] : [name]
+  const killed: string[] = []
+  for (const t of targets as string[]) {
+    const sess = String(t).split(":")[0].split(" ")[0]
+    try {
+      tmux("send-keys", "-t", sess, "C-c")
+      execFileSync("bash", ["-c", `sleep 0.3 && tmux kill-session -t ${sess} 2>/dev/null || true`], { stdio: "ignore" })
+      killed.push(sess)
+    } catch {}
+  }
+  return { ok: true, killed }
+}
+
+/* -------------------------------------------- reusable attack-chain patterns */
+
+const PATTERNS_DIR = join(BASE, "patterns")
+
+function patternLoadAll(): Json[] {
+  ensureDir(PATTERNS_DIR)
+  try {
+    return readdirSync(PATTERNS_DIR)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => ({ ...(readJSON(join(PATTERNS_DIR, f), {}) as Json), _file: f }))
+      .filter((p) => p && p.id)
+  } catch {
+    return []
+  }
+}
+
+function patternSave(p: Json): Json {
+  ensureDir(PATTERNS_DIR)
+  if (!p.id) p.id = `pattern-${Date.now().toString(36)}`
+  p.created_at = p.created_at || nowISO()
+  writeJSON(join(PATTERNS_DIR, `${p.id}.json`), p)
+  return p
+}
+
+function patternMatches(p: Json, ctx: Json): boolean {
+  const m = p.match || {}
+  for (const [k, want] of Object.entries(m)) {
+    const got = String((ctx as Json)[k] ?? "").toLowerCase()
+    if (!got) continue
+    const w = String(want).toLowerCase()
+    if (!got.includes(w) && !w.split("|").some((x) => got.includes(x.trim()))) return false
+  }
+  return true
+}
+
 function buildReport(dir: string, format: string): Json {
   const st = loadState(dir)
   let findings: Json[] = []
@@ -1520,6 +2370,22 @@ function buildReport(dir: string, format: string): Json {
     `- endpoints: ${(st.surface?.endpoints || []).length}`,
     `- files discovered: ${(st.surface?.files || []).length}`,
     `- secrets surfaced: ${(st.surface?.secrets || []).length}`,
+    ``,
+    `## Execution timeline (todo-driven)`,
+    ``,
+    ...(st.todos || []).length
+      ? (st.todos as Json[]).map(
+          (t) =>
+            `- [${t.status?.toUpperCase() || "OPEN"}] ${t.id}: ${t.text}` +
+            (t.result ? `\n  ↳ result: ${String(t.result).slice(0, 300)}` : ""),
+        )
+      : ["- (no todo plan was recorded for this engagement)"],
+    ``,
+    `## Honesty ledger`,
+    ``,
+    `- confirmed findings: ${findings.filter((f) => f.confirmed).length} (evidence-backed)`,
+    `- candidate-only findings: ${findings.filter((f) => !f.confirmed).length} (reported as unproven)`,
+    `- every confirmed claim above has a file in \`evidence/\` or a \`Reproduction\` block.`,
     ``,
     `## Findings`,
     ``,
@@ -1627,6 +2493,12 @@ export default {
         surface.endpoints?.length ? `endpoints: ${surface.endpoints.length}` : null,
         surface.secrets?.length ? `secrets: ${surface.secrets.length}` : null,
         st.hypotheses?.length ? `open hypotheses:\n${(st.hypotheses || []).map((h: Json) => `  - ${h.hypothesis || h}`).join("\n")}` : null,
+        (st.todos || []).length
+          ? `todo plan (${(st.todos as Json[]).filter((t) => t.status === "open").length} open / ${(st.todos as Json[]).filter((t) => t.status === "doing").length} doing):\n${(st.todos as Json[])
+              .map((t) => `  - [${t.status}] ${t.id}: ${t.text}`)
+              .join("\n")}\n  → work the next "doing"/"open" item top-down; mark done with raptor_todo(action=set, id, status="done")`
+          : null,
+        stopRequested() ? `KILL-SWITCH ACTIVE: ~/.raptor/STOP is set — do not launch new heavy steps; finish recording and report only.` : null,
         `workspace: ${dir}`,
         `</raptor-state>`,
       ]
@@ -1670,7 +2542,7 @@ export default {
       editor.add({
         name: "route",
         description:
-          "Tool-chain router. Given an intent (subdomain-enum, dir-enum, sqli, jwt-audit, ad-enum, re-static, malware-triage, ...) returns the ordered command chain, which binaries are present, install commands for missing ones and how to read the result.",
+          "Tool-chain router. Given an intent, returns the ordered command chain, which binaries are present, install commands for missing ones and how to read the result. Renowned intents: subdomain-enum, port-scan, dir-enum, sqli, xss, ssrf, jwt-audit, credential-stuffing, linux-privesc, ad-enum, lateral-movement, re-static, re-dynamic, malware-triage, exploit-dev. Extended: cloud-posture-audit, cloud-aws-audit, cloud-azure-audit, cloud-gcp-audit, iam-privesc, cloud-secrets, imds-credential-hunt, iac-scan, container-vuln-scan, docker-audit, runtime-detection, k8s-hunt, k8s-cis-audit, k8s-manifest-audit, k8s-rbac-enum, k8s-escape, helm-audit, istio-audit, forensics-disk, forensics-memory, sleuthkit-analysis, autopsy-timeline, stego, metadata-audit, hash-identify, hash-crack, cipher-analysis, frequency-crack, rsa-analysis, subsiege, subdomain-takeover, param-spider, secret-hunt-git, osint-platform, shodan-recon, censys-recon, aquatone-survey, fuzz-binary, symbolic-exec.",
         input: {
           type: "object",
           properties: {
@@ -1693,20 +2565,21 @@ export default {
       editor.add({
         name: "state",
         description:
-          "Read or update the live engagement state: phase, hypotheses, decisions, discovered surface (hosts/endpoints/files/secrets), open questions. Update it every phase so the run survives compaction.",
+          "Read or update the live engagement state: phase, hypotheses, decisions, discovered surface (hosts/endpoints/files/secrets), open questions. Update it every phase so the run survives compaction. Pass dir to target a specific workspace when more than one engagement runs concurrently.",
         input: {
           type: "object",
           properties: {
             set: { type: "object", description: "State keys to merge: phase, phases_done, hypotheses, decisions, open_questions, surface, notes." },
             add_hypothesis: { type: "string", description: "Append a hypothesis to test." },
             phase: { type: "string", description: "Set the current phase: plan|recon|surface|exploit|post|reverse|malware|report." },
+            dir: { type: "string", description: "Explicit engagement workspace (multi-session safety). Omit to use the active engagement." },
           },
           additionalProperties: false,
         },
         options: { namespace: "raptor", codemode: true },
         execute: async (input: Json) => {
-          const dir = activeEngagementDir()
-          if (!dir) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first." }) }
+          const dir = input.dir ? resolve(String(input.dir)) : activeEngagementDir()
+          if (!dir || !existsSync(dir)) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first (or pass an existing dir)." }) }
           const st = loadState(dir)
           if (input.phase) st.phase = input.phase
           if (input.set) {
@@ -1742,14 +2615,15 @@ export default {
             impact: { type: "string" },
             fix: { type: "string" },
             confirmed: { type: "boolean", description: "false for unverified candidates." },
+            dir: { type: "string", description: "Explicit engagement workspace (multi-session safety). Omit to use the active engagement." },
           },
           required: ["title", "severity"],
           additionalProperties: false,
         },
         options: { namespace: "raptor", codemode: true },
         execute: async (input: Json) => {
-          const dir = activeEngagementDir()
-          if (!dir) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first." }) }
+          const dir = input.dir ? resolve(String(input.dir)) : activeEngagementDir()
+          if (!dir || !existsSync(dir)) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first (or pass an existing dir)." }) }
           return { content: JSON.stringify(addFinding(dir, input), null, 2) }
         },
       })
@@ -1804,13 +2678,16 @@ export default {
         description: "Generate the evidence-backed engagement report from captured findings (report.md, and report.json when format=json).",
         input: {
           type: "object",
-          properties: { format: { type: "string", enum: ["md", "json", "both"] } },
+          properties: {
+            format: { type: "string", enum: ["md", "json", "both"] },
+            dir: { type: "string", description: "Explicit engagement workspace (multi-session safety). Omit to use the active engagement." },
+          },
           additionalProperties: false,
         },
         options: { namespace: "raptor", codemode: true },
         execute: async (input: Json) => {
-          const dir = activeEngagementDir()
-          if (!dir) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first." }) }
+          const dir = input.dir ? resolve(String(input.dir)) : activeEngagementDir()
+          if (!dir || !existsSync(dir)) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first (or pass an existing dir)." }) }
           const fmt = input.format === "json" ? "json" : input.format === "both" ? "both" : "md"
           return { content: JSON.stringify(buildReport(dir, fmt), null, 2) }
         },
@@ -1820,11 +2697,17 @@ export default {
         name: "diff",
         description:
           "Diff the currently recorded attack surface against the previous snapshot of this engagement, then snapshot the current state. Use it to detect new hosts/endpoints/secrets on re-runs.",
-        input: { type: "object", properties: {}, additionalProperties: false },
+        input: {
+          type: "object",
+          properties: {
+            dir: { type: "string", description: "Explicit engagement workspace (multi-session safety). Omit to use the active engagement." },
+          },
+          additionalProperties: false,
+        },
         options: { namespace: "raptor", codemode: true },
-        execute: async () => {
-          const dir = activeEngagementDir()
-          if (!dir) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first." }) }
+        execute: async (input: Json) => {
+          const dir = input.dir ? resolve(String(input.dir)) : activeEngagementDir()
+          if (!dir || !existsSync(dir)) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first (or pass an existing dir)." }) }
           return { content: JSON.stringify(reconDiff(dir), null, 2) }
         },
       })
@@ -1850,6 +2733,172 @@ export default {
           appendFileSync(MEMORY, line)
           return { content: JSON.stringify({ ok: true, memory: MEMORY, appended: input.text }, null, 2) }
         },
+      })
+
+      editor.add({
+        name: "todo",
+        description:
+          "Todo-driven execution plan for the current engagement. add the plan before working, then update statuses as you go (open → doing → done). The open board is injected into every future context so you always know your next step. Actions: add | set | list | clear.",
+        input: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["add", "set", "list", "clear"], description: "add: new item; set: change status/result of an id; list: full board; clear: wipe the board." },
+            text: { type: "string", description: "Item text (action=add)." },
+            id: { type: "string", description: "Todo id (action=set)." },
+            status: { type: "string", enum: ["open", "doing", "done", "blocked", "dropped"], description: "Status (action=set)." },
+            result: { type: "string", description: "One-line outcome to record when closing the item (action=set)." },
+            dir: { type: "string", description: "Explicit engagement workspace (multi-session safety). Omit to use the active engagement." },
+          },
+          required: ["action"],
+          additionalProperties: false,
+        },
+        options: { namespace: "raptor", codemode: true },
+        execute: async (input: Json) => {
+          const dir = input.dir ? resolve(String(input.dir)) : activeEngagementDir()
+          if (!dir || !existsSync(dir)) return { content: JSON.stringify({ ok: false, error: "No active engagement. Call raptor_engage first (or pass an existing dir)." }) }
+          if (input.action === "add" && !input.text)
+            return { content: JSON.stringify({ ok: false, error: "action=add requires text" }) }
+          if (input.action === "add") {
+            // batch-add: text containing ' | ' creates multiple items at once
+            const parts = String(input.text).split(" | ").map((s) => s.trim()).filter(Boolean)
+            const added = (parts as string[]).map((p) => todoMutate(dir, "add", { text: p }))
+            return { content: JSON.stringify({ ok: true, added: added.length, board: todoBoard(dir) }, null, 2) }
+          }
+          if (input.action === "set") return { content: JSON.stringify(todoMutate(dir, "set", input), null, 2) }
+          return { content: JSON.stringify(input.action === "clear" ? todoMutate(dir, "clear") : todoBoard(dir), null, 2) }
+        },
+      })
+
+      editor.add({
+        name: "tmux",
+        description:
+          "tmux shell orchestrator: a session per engagement with dash/ops/logs windows. start a session, dispatch real shell commands into a window, capture output, list sessions, stop the tree. Use it for long-running tools so you keep working while the pane fills.",
+        input: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["start", "cmd", "capture", "list", "stop"], description: "start: create session; cmd: send a shell command; capture: read pane output; list: show sessions; stop: kill session tree." },
+            target: { type: "string", description: "Target the session is named after (action=start)." },
+            session: { type: "string", description: "Session name (default: raptor-<slug(target)>; action=cmd/capture/stop). Use '*' to stop every raptor session." },
+            window: { type: "string", enum: ["ops", "dash", "logs"], description: "Window to send into / capture (default: ops)." },
+            cmd: { type: "string", description: "Shell command to dispatch (action=cmd)." },
+            lines: { type: "number", description: "Lines to capture (action=capture, default 120)." },
+            dir: { type: "string", description: "Explicit engagement workspace (multi-session safety; action=start workdir). Omit to use the active engagement." },
+          },
+          required: ["action"],
+          additionalProperties: false,
+        },
+        options: { namespace: "raptor", codemode: true },
+        execute: async (input: Json) => {
+          if (stopRequested() && input.action !== "list")
+            return { content: JSON.stringify({ ok: false, error: "KILL-SWITCH ACTIVE (~/.raptor/STOP). Clear it with raptor_stop before resuming." }) }
+          const dir = input.dir ? resolve(String(input.dir)) : activeEngagementDir()
+          // consistent naming: engagement state target wins, input.target is fallback —
+          // this keeps start/cmd/capture/stop on the same session name
+          const implicit = dir ? loadState(dir).target : input.target
+          const name = input.session || tmuxSessionName(implicit || input.target || "workspace")
+          const win = input.window || "ops"
+          switch (input.action) {
+            case "start": {
+              const workdir = dir || join(BASE, "sessions")
+              ensureDir(workdir)
+              return {
+                content: JSON.stringify(
+                  tmuxStart(name, workdir, [
+                    { window: "dash", cmd: `echo "[raptor] ${name} — ops window: run tool commands here; logs window tails the run log"` },
+                    { window: "ops", cmd: "echo '[raptor] ops'" },
+                    { window: "logs", cmd: "true" },
+                  ]),
+                  null,
+                  2,
+                ),
+              }
+            }
+            case "cmd": {
+              if (!input.cmd) return { content: JSON.stringify({ ok: false, error: "action=cmd requires cmd" }) }
+              ensureDir(BASE)
+              try {
+                appendFileSync(join(BASE, "run.log"), `[${nowISO()}] tmux:${name}:${win} ← ${input.cmd}\n`)
+              } catch {}
+              return { content: JSON.stringify(tmuxDispatch(name, win, input.cmd), null, 2) }
+            }
+            case "capture":
+              return { content: JSON.stringify(tmuxCapture(name, win, Number(input.lines) || 120), null, 2) }
+            case "list":
+              return { content: JSON.stringify(tmuxList(), null, 2) }
+            case "stop":
+              return { content: JSON.stringify(tmuxStop(name), null, 2) }
+            default:
+              return { content: JSON.stringify({ ok: false, error: `unknown action ${input.action}` }) }
+          }
+        },
+      })
+
+      editor.add({
+        name: "pattern",
+        description:
+          "Reusable attack-chain patterns. store a working chain keyed by a target fingerprint (stack, waf, service...) and re-play it on the next similar target. Actions: list | query | add | use.",
+        input: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["list", "query", "add", "use"] },
+            query: { type: "string", description: "Search text against name/match/notes (action=query)." },
+            name: { type: "string", description: "Pattern name (action=add)." },
+            match: { type: "object", description: "Fingerprint keywords, e.g. {stack:'nginx|apache', waf:'cloudflare'} (action=add)." },
+            chain: { type: "object", description: "The chain to re-play, e.g. {routes:['subsiege','fuzz-web','sqli'], notes:[...]} (action=add)." },
+            verify: { type: "string", description: "How success was verified (action=add)." },
+            id: { type: "string", description: "Pattern id instance (action=use marks used)." },
+          },
+          required: ["action"],
+          additionalProperties: false,
+        },
+        options: { namespace: "raptor", codemode: true },
+        execute: async (input: Json) => {
+          const all = patternLoadAll()
+          if (input.action === "list") return { content: JSON.stringify({ ok: true, count: all.length, patterns: all }, null, 2) }
+          if (input.action === "query") {
+            const q = String(input.query || "").toLowerCase()
+            const hits = all.filter((p) => JSON.stringify(p).toLowerCase().includes(q))
+            return { content: JSON.stringify({ ok: true, query: q, matched: hits.length, patterns: hits }, null, 2) }
+          }
+          if (input.action === "add") {
+            if (!input.name || !input.chain) return { content: JSON.stringify({ ok: false, error: "action=add requires name + chain" }) }
+            const saved = patternSave({
+              name: input.name,
+              match: input.match || {},
+              chain: input.chain,
+              verify: input.verify || "",
+              notes: input.notes || [],
+              times_used: 0,
+            })
+            return { content: JSON.stringify({ ok: true, saved }, null, 2) }
+          }
+          // use
+          const p = all.find((x) => x.id === input.id)
+          if (!p) return { content: JSON.stringify({ ok: false, error: `pattern '${input.id}' not found` }) }
+          p.times_used = (p.times_used || 0) + 1
+          p.last_used = nowISO()
+          patternSave(p)
+          return { content: JSON.stringify({ ok: true, pattern: p }, null, 2) }
+        },
+      })
+
+      editor.add({
+        name: "stop",
+        description:
+          "Kill switch. action=stop: set ~/.raptor/STOP, interrupt and kill every raptor tmux session tree — all loops halt. action=resume: clear the flag. Context injection warns you while the flag is live.",
+        input: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["stop", "resume"], description: "stop: halt everything; resume: clear the flag." },
+            reason: { type: "string", description: "Why the stop was requested (action=stop)." },
+          },
+          required: ["action"],
+          additionalProperties: false,
+        },
+        options: { namespace: "raptor", codemode: true },
+        execute: async (input: Json) => ({
+          content: JSON.stringify(input.action === "stop" ? requestStop(input.reason || "operator requested stop") : clearStop(), null, 2),
+        }),
       })
     })
 

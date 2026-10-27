@@ -12,6 +12,10 @@ These are the depth behind the agent's decision loop. Load the reference that ma
 | recon / fingerprint | `references/recon.md` | You know the target but not its shape |
 | web + API surface | `references/web.md` | Target is an HTTP service, API, SPA |
 | infra / post-ex | `references/infra.md` | You have a foothold, or the target is a network/AD |
+| cloud / k8s / containers / IaC | `references/cloud-k8s.md` | Target is a cloud account, cluster, Docker host, IaC repo or mesh |
+| forensics (disk/memory/stego/metadata) | `references/forensics.md` | Target is a disk image, memory dump, image file, document or incident |
+| crypto / hashes / classic ciphers / CTF | `references/crypto.md` | Target is an MD5/SHA/bcrypt hash, a base64/hex blob, a substitution cipher or RSA key material |
+| bug bounty / extended OSINT | `references/bugbounty.md` | Target is an in-scope bounty program or a person/org to correlate online |
 | OSINT / subject intel | `references/osint.md` | Target is a domain, org, email, username or person |
 | reverse engineering | `references/reverse.md` | Target is a binary, app, APK, firmware, .NET/Electron/WASM |
 | malware | `references/malware.md` | Target is a suspicious sample, dropper, implant or PCAP |
@@ -27,6 +31,10 @@ Target given
   ├─ source repo / web app dir ──► secret-hunt + code review ──► web.md
   ├─ binary / APK / .NET / WASM ──► reverse.md
   ├─ firmware image ─────────────► reverse.md (firmware section)
+  ├─ cloud account / k8s cluster / docker host / IaC dir ──► cloud-k8s.md
+  ├─ disk image / memory dump / picture / document ──► forensics.md
+  ├─ hash / encoded blob / cipher / RSA key ──► crypto.md
+  ├─ bounty program / handle / email to correlate ──► bugbounty.md
   └─ sample / PCAP ──────────────► malware.md
 ```
 
