@@ -8,10 +8,10 @@ apis.json
 # runtime noise
 *.log
 install.log
-toolsmith/
-tools/
-engagements/
-node_modules/
+/toolsmith/
+/tools/
+/engagements/
+/node_modules/
 __pycache__/
 *.pyc
 
