@@ -33,27 +33,26 @@ opencode-raptor-stack/
 
 ## Setup — one command
 
-The repo is **private**, so the one-liner carries a GitHub token (`GITHUB_TOKEN` with `repo` scope).
-Fresh box, nothing cloned:
-
-```bash
-GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/dark-hacker-error/opencode-raptor-stack/contents/install.sh | bash'
-```
-
-That single line downloads the whole stack, installs all 206 agents, 107 commands, 196 skills and
-2 plugins, seeds `opencode.json` with the 5 MCP servers, and enables the GitHub MCP with the same
-token. Re-run the same line to update.
-
-If you make the repo public (or use a public fork), the plain form works:
+The repo is **public** — nothing to clone, no token needed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
 ```
 
+That single line downloads the whole stack, installs all 206 agents, 107 commands, 196 skills and
+2 plugins, seeds `opencode.json` with the MCP servers, and sets up the Raptor runtime. Re-run the
+same line to update.
+
+Private fork (or authenticated access):
+
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/dark-hacker-error/opencode-raptor-stack/contents/install.sh | bash'
+```
+
 With the offensive toolchain (slow — apt/go/pip/cargo/npm):
 
 ```bash
-curl -fsSL -H "Authorization: token $GITHUB_TOKEN" https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash -s -- --tools
+curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash -s -- --tools
 ```
 
 From a local checkout:
@@ -154,7 +153,7 @@ Re-run the same one command — it is idempotent and overwrites files in place w
 config and API keys:
 
 ```bash
-GITHUB_TOKEN=ghp_xxxxxxxx bash -c 'curl -fsSL -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.raw" https://api.github.com/repos/dark-hacker-error/opencode-raptor-stack/contents/install.sh | bash'
+curl -fsSL https://raw.githubusercontent.com/dark-hacker-error/opencode-raptor-stack/main/install.sh | bash
 opencode service restart
 ```
 
